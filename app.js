@@ -1036,7 +1036,7 @@ const BLOCK_TYPES = [
   { type: "ul", label: "Lista", hint: "Con viñetas", icon: "•", keys: "lista vineta bullet" },
   { type: "quote", label: "Cita", hint: "Frase destacada", icon: "”", keys: "cita quote" },
 ];
-const norm = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 function makeBlock(b) {
   const el = document.createElement("div");
