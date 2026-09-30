@@ -105,6 +105,14 @@
         <p class="muted mt-1 text-xs">Activa las notificaciones para los recordatorios de cada tarea (menú ⋮ de la tarea → Recordatorio).</p>
       </div>
 
+      <div class="setting">
+        <p class="setting-label">Avisos con la app cerrada</p>
+        <label class="muted text-xs" for="push-url">Dirección de tu servidor de avisos</label>
+        <input id="push-url" class="field mt-1" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
+        <button id="push-toggle" class="btn-secondary mt-2 w-full py-3">Activar</button>
+        <p id="push-status" class="muted mt-1 text-xs" role="status"></p>
+      </div>
+
       <p id="app-version" class="muted mt-6 text-center text-xs"></p>
     </div>
   </div>

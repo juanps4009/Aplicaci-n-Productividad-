@@ -1,0 +1,13 @@
+# Solo si prefieres desplegar con la línea de comandos (npx wrangler deploy).
+# Con el panel web de Cloudflare no necesitas este archivo: mira worker/README.md.
+name = "avisos-productividad"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "avisos"
+database_id = "REEMPLAZA-CON-EL-ID-DE-TU-BASE"

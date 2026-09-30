@@ -1,7 +1,7 @@
 /* Service worker: funciona sin conexión.
    Estrategia "red primero": si hay internet siempre carga la versión más nueva y la guarda;
    si no hay, usa la copia guardada. Sube CACHE si cambias la lista de archivos. */
-const CACHE = "productividad-v2";
+const CACHE = "productividad-v3";
 const FILES = ["./", "index.html", "styles.css", "app.js", "reminders.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 
@@ -34,4 +34,19 @@ self.addEventListener("notificationclick", (e) => {
     const open = list.find((c) => "focus" in c);
     return open ? open.focus() : self.clients.openWindow("./");
   }));
+});
+
+/* Notificación push enviada por el servidor de avisos.
+   Si la app está a la vista, ella misma avisa (evita duplicados). */
+self.addEventListener("push", (e) => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch { /* mensaje sin formato */ }
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (wins.some((c) => c.visibilityState === "visible")) return;
+    await self.registration.showNotification(data.title || "Recordatorio", {
+      body: data.body || "", tag: data.tag || undefined,
+      icon: "icons/icon-192.png", badge: "icons/icon-192.png",
+    });
+  })());
 });

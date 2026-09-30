@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.8.0-beta";
+const APP_VERSION = "0.9.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -242,7 +242,7 @@ function renderTasks() {
   renderAttention();
 }
 
-function persistTasks() { save(KEYS.tasks, state.tasks); renderTasks(); }
+function persistTasks() { save(KEYS.tasks, state.tasks); renderTasks(); schedulePushSync(); }
 
 $("#task-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -369,6 +369,14 @@ function renderSettings() {
     const current = state.settings[seg.dataset.setting];
     seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === current));
   });
+  const pushBtn = $("#push-toggle");
+  if (document.activeElement !== $("#push-url")) $("#push-url").value = state.settings.pushUrl || "";
+  $("#push-url").disabled = !!state.settings.pushOn;
+  pushBtn.textContent = state.settings.pushOn ? "Desactivar avisos con la app cerrada" : "Activar avisos con la app cerrada";
+  pushBtn.disabled = pushStatus.kind === "busy";
+  const ps = $("#push-status");
+  ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : "Sin configurar: los avisos solo suenan con la app abierta o al abrirla.");
+  ps.classList.toggle("rem-error", pushStatus.kind === "error");
   const btn = $("#enable-notif");
   if (!("Notification" in window)) {
     btn.textContent = "Notificaciones no disponibles"; btn.disabled = true;
@@ -636,9 +644,106 @@ function runReminders() {
       }
     });
   });
-  if (changed) { save(KEYS.tasks, state.tasks); renderTasks(); }
+  if (changed) { save(KEYS.tasks, state.tasks); renderTasks(); schedulePushSync(); }
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) runReminders(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { runReminders(); schedulePushSync(); } });
+
+/* ---------- Avisos con la app cerrada (servidor de avisos / push) ---------- */
+/* La app le manda al servidor los próximos avisos; el servidor los entrega a la hora exacta aunque
+   la app esté cerrada. Ver worker/README.md. Sin servidor configurado todo sigue funcionando en local. */
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64uToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+let pushStatus = { kind: "idle", text: "" };
+let pushTimer = null;
+
+function deviceId() {
+  if (!state.settings.deviceId) {
+    const bytes = crypto.getRandomValues(new Uint8Array(18));
+    state.settings.deviceId = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_");
+    save(KEYS.settings, state.settings);
+  }
+  return state.settings.deviceId;
+}
+
+function setPushStatus(kind, text) { pushStatus = { kind, text }; renderSettings(); }
+
+async function pushGet(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`El servidor respondió ${res.status}`);
+  return res.json();
+}
+
+async function enablePush() {
+  const url = $("#push-url").value.trim().replace(/\/+$/, "");
+  if (!/^https:\/\/[^/]+/.test(url)) return setPushStatus("error", "Escribe la dirección completa, empezando con https://");
+  if (!pushSupported()) return setPushStatus("error", "Este navegador no admite avisos con la app cerrada. Instala la app desde su dirección web.");
+  setPushStatus("busy", "Conectando…");
+  try {
+    if (Notification.permission === "default") await Notification.requestPermission();
+    if (Notification.permission !== "granted") throw new Error("Falta el permiso de notificaciones. Actívalo en los ajustes del navegador.");
+    const { publicKey } = await pushGet(`${url}/vapid`);
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && state.settings.vapidKey !== publicKey) { await sub.unsubscribe(); sub = null; } // servidor nuevo: otra clave
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(publicKey) });
+    Object.assign(state.settings, { pushUrl: url, pushOn: true, vapidKey: publicKey });
+    save(KEYS.settings, state.settings);
+    await syncPush();
+  } catch (err) {
+    const msg = err && err.name === "TypeError" ? "No pude conectar con esa dirección. Revisa que sea correcta." : (err && err.message) || "Error desconocido";
+    setPushStatus("error", msg);
+  }
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+    if (state.settings.pushUrl) {
+      await fetch(`${state.settings.pushUrl}/unsync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: deviceId() }) }).catch(() => {});
+    }
+  } catch { /* ya estaba desactivado */ }
+  state.settings.pushOn = false;
+  save(KEYS.settings, state.settings);
+  setPushStatus("idle", "");
+}
+
+function schedulePushSync() {
+  if (!state.settings.pushOn) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(syncPush, 1500);
+}
+
+async function syncPush() {
+  const { pushOn, pushUrl } = state.settings;
+  if (!pushOn || !pushUrl) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) throw new Error("La suscripción se perdió. Desactiva y vuelve a activar los avisos.");
+    const now = Date.now();
+    const items = [];
+    state.tasks.forEach((task) => {
+      Reminders.nextFires(task, now, 14, 100).forEach(({ ms, remId }) => items.push({
+        id: `${remId}:${ms}`, fireAt: ms, title: task.text.slice(0, 120),
+        body: task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", tag: `r-${remId}-${ms}`,
+      }));
+    });
+    items.sort((a, b) => a.fireAt - b.fireAt);
+    items.length = Math.min(items.length, 300);
+    const res = await fetch(`${pushUrl}/sync`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device: deviceId(), subscription: sub.toJSON(), items }),
+    });
+    if (!res.ok) throw new Error(`El servidor respondió ${res.status}`);
+    setPushStatus("ok", `Activo · ${items.length} aviso${items.length === 1 ? "" : "s"} programado${items.length === 1 ? "" : "s"} · sincronizado ${new Date(now).toLocaleTimeString("es", { hour: "numeric", minute: "2-digit" })}`);
+  } catch (err) {
+    setPushStatus("error", (err && err.name === "TypeError") ? "Sin conexión con el servidor; se reintentará al abrir la app." : err.message);
+  }
+}
+
+$("#push-toggle").addEventListener("click", () => (state.settings.pushOn ? disablePush() : enablePush()));
 
 /* ---------- Editor libre (estilo Notion) ---------- */
 /* Un documento es una lista de bloques {id, type, text}. Lo que es título, subtítulo, lista o cita
@@ -1154,4 +1259,5 @@ renderTasks();
 renderBooks();
 renderSettings();
 runReminders();
+schedulePushSync();
 setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
