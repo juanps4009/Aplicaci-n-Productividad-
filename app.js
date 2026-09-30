@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.4.0-beta";
+const APP_VERSION = "0.5.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -20,11 +20,11 @@ function save(key, value) {
 
 const TYPE_FROM_ENTRY = { title: "h1", subtitle: "h2", text: "p" };
 const migrateTask = (t) => {
-  const task = { priority: "medium", due: "", notified: false, ...t };
-  if (!task.doc) {
-    task.doc = (task.notes || "").split("\n").filter((l) => l.trim()).map((l, i) => ({ id: `n${i}${uidSeed()}`, type: "p", text: l }));
+  const task = { priority: "medium", due: "", notified: false, notes: "", ...t };
+  if (task.doc) { // formato de la 0.4: bloques → texto plano
+    if (!task.notes) task.notes = task.doc.map((b) => b.text).join("\n");
+    delete task.doc;
   }
-  delete task.notes;
   return task;
 };
 const migrateBook = (b) => {
@@ -47,6 +47,7 @@ const state = {
   collapsed: { done: true, ...load(KEYS.collapsed, {}) },
   newPriority: "medium",
   editing: new Set(),      // ids de resúmenes en edición
+  openBook: null,          // id del resumen abierto a página completa
   drafts: new Map(),       // copias de trabajo de los resúmenes en edición
   menuTask: null,          // tarea del menú ⋮
   notesTask: null,         // tarea abierta en notas
@@ -141,7 +142,7 @@ function taskHTML(t) {
     </li>`;
   }
   const overdue = t.due && !t.done && t.due < today();
-  const notePreview = (t.doc || []).find((b) => b.text && b.text.trim())?.text || "";
+  const hasNotes = !!(t.notes || "").trim();
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
@@ -149,9 +150,8 @@ function taskHTML(t) {
       <div class="task-main">
         <div class="task-text">${esc(t.text)}</div>
         ${t.due ? `<div class="due-label ${overdue ? "overdue" : ""}">📅 ${dueLabel(t.due)}</div>` : ""}
-        ${notePreview ? `<div class="note-preview">${esc(notePreview)}</div>` : ""}
       </div>
-      <button class="icon-btn ${notePreview ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
+      <button class="icon-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
       <button class="icon-btn" data-action="menu-task" aria-label="Más opciones" style="font-size:1.4rem;font-weight:700">⋮</button>
     </li>`;
 }
@@ -638,13 +638,14 @@ function mountEditor(root, blocks, onChange = () => {}) {
   });
 }
 
-/* ---------- Página de notas de una tarea ---------- */
+/* ---------- Página de notas de una tarea (texto simple) ---------- */
 let notesTimer = null;
+const growNotes = () => { const t = $("#notes-text"); t.style.height = "auto"; t.style.height = `${Math.max(t.scrollHeight, 240)}px`; };
 
 function saveNotes() {
   const task = state.tasks.find((t) => t.id === state.notesTask);
   if (!task) return;
-  task.doc = trimDoc(readDoc($("#notes-editor")));
+  task.notes = $("#notes-text").value;
   save(KEYS.tasks, state.tasks);
 }
 
@@ -655,27 +656,28 @@ function openNotes(task) {
   $("#notes-meta").innerHTML = `
     <span class="chip"><span class="dot" style="--prio:var(--${task.priority})"></span>Prioridad ${label.toLowerCase()}</span>
     ${task.due ? `<span class="chip">📅 ${dueLabel(task.due)}</span>` : ""}`;
-  const editor = $("#notes-editor");
-  mountEditor(editor, task.doc || [], () => {
-    clearTimeout(notesTimer);
-    notesTimer = setTimeout(saveNotes, 250);
-  });
+  $("#notes-text").value = task.notes || "";
   $("#notes-page").classList.remove("hidden");
   $("#notes-page").scrollTop = 0;
   document.body.classList.add("no-scroll");
-  if (!(task.doc || []).length) { editor.focus(); setCaret(editor.firstElementChild, 0); }
+  growNotes();
+  if (!task.notes) $("#notes-text").focus();
 }
 
 function closeNotes() {
   clearTimeout(notesTimer);
   saveNotes();
-  closeSlash();
   $("#notes-page").classList.add("hidden");
   document.body.classList.remove("no-scroll");
   state.notesTask = null;
   renderTasks();
 }
 $("#notes-back").addEventListener("click", closeNotes);
+$("#notes-text").addEventListener("input", () => {
+  growNotes();
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(saveNotes, 250);
+});
 
 /* ---------- Resúmenes de libros ---------- */
 const SECTIONS = [
@@ -689,9 +691,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 function freeViewHTML(b) {
   const doc = (b.doc || []).filter((x) => x.text.trim());
-  if (!doc.length) {
-    return `<div class="book-body"><p class="muted">Sin contenido todavía. Toca ✎ para escribir; usa “/” para dar formato.</p></div>`;
-  }
+  if (!doc.length) return `<p class="muted">Sin contenido todavía. Toca ✎ para escribir; usa “/” para dar formato.</p>`;
   const titles = doc.filter((x) => x.type === "h1");
   const rail = titles.length ? `
     <nav class="dot-rail" aria-label="Secciones del resumen">
@@ -700,28 +700,16 @@ function freeViewHTML(b) {
   return `<div class="free-body">${docViewHTML(doc)}${rail}</div>`;
 }
 
-function bookViewHTML(b) {
+function bookPageViewHTML(b) {
   const boxes = SECTIONS.map((s) => `
     <div class="box ${s.cls}">
       <h3>${s.label}</h3>
       ${b[s.key] ? `<p>${esc(b[s.key])}</p>` : `<p class="empty">Sin contenido</p>`}
     </div>`).join("");
-  const body = b.template === "free" ? freeViewHTML(b) : `<div class="book-body">${boxes}</div>`;
   return `
-    <div class="book-head">
-      <button class="titles" data-action="collapse" aria-expanded="${!b.collapsed}">
-        <div class="flex items-center gap-2">
-          <span class="chevron">▾</span>
-          <div class="min-w-0">
-            <h2 class="truncate text-lg font-bold">${esc(b.title) || "Sin título"}</h2>
-            <p class="truncate text-sm muted">${esc(b.author) || "Autor desconocido"}</p>
-          </div>
-        </div>
-      </button>
-      <button class="icon-btn" data-action="edit" aria-label="Editar">✎</button>
-      <button class="icon-btn danger" data-action="delete" aria-label="Eliminar">🗑</button>
-    </div>
-    ${b.collapsed ? "" : body}`;
+    <h2 class="page-title">${esc(b.title) || "Sin título"}</h2>
+    <p class="muted book-page-author">${esc(b.author) || "Autor desconocido"}</p>
+    ${b.template === "free" ? freeViewHTML(b) : `<div class="grid-gap">${boxes}</div>`}`;
 }
 
 function bookEditHTML(d) {
@@ -734,7 +722,7 @@ function bookEditHTML(d) {
       <textarea class="field" rows="4" data-field="${s.key}" placeholder="${esc(s.hint)}">${esc(d[s.key])}</textarea>
     </label>`).join("");
   return `
-    <div class="book-body" style="padding-top:1rem">
+    <div class="grid-gap">
       <input class="field" data-field="title" value="${esc(d.title)}" placeholder="Título del libro" aria-label="Título">
       <input class="field" data-field="author" value="${esc(d.author)}" placeholder="Autor" aria-label="Autor">
       <div>
@@ -755,13 +743,43 @@ function bookEditHTML(d) {
 function renderBooks() {
   closeSlash();
   $("#book-list").innerHTML = state.books.map((b) => `
-    <article class="book-card ${b.collapsed ? "collapsed" : ""}" data-id="${b.id}">
-      ${state.editing.has(b.id) ? bookEditHTML(state.drafts.get(b.id)) : bookViewHTML(b)}
+    <article class="book-card" data-book="${b.id}">
+      <button class="book-open" data-action="open">
+        <span class="book-row-title">${esc(b.title) || "Sin título"}</span>
+        <span class="book-row-author">${esc(b.author)}</span>
+      </button>
     </article>`).join("");
-  $$("#book-list .editor").forEach((el) => mountEditor(el, state.drafts.get(el.closest("[data-id]").dataset.id).doc));
   $("#book-empty").classList.toggle("hidden", state.books.length > 0);
+  renderBookPage();
+}
+
+function renderBookPage() {
+  const page = $("#book-page");
+  const book = state.books.find((b) => b.id === state.openBook);
+  if (!book) { page.classList.add("hidden"); document.body.classList.remove("no-scroll"); return; }
+  const editing = state.editing.has(book.id);
+  page.dataset.book = book.id;
+  page.classList.remove("hidden");
+  document.body.classList.add("no-scroll");
+  $("#book-back").classList.toggle("hidden", editing);
+  $("#book-bar-actions").classList.toggle("hidden", editing);
+  $("#book-bar-label").textContent = editing ? "Editando" : "";
+  $("#book-detail").innerHTML = editing ? bookEditHTML(state.drafts.get(book.id)) : bookPageViewHTML(book);
+  const ed = $("#book-detail .editor");
+  if (ed) mountEditor(ed, state.drafts.get(book.id).doc);
   updateActiveDots();
 }
+
+function openBook(id) {
+  state.openBook = id;
+  renderBooks();
+  $("#book-page").scrollTop = 0;
+}
+function closeBook() {
+  state.openBook = null;
+  renderBooks();
+}
+$("#book-back").addEventListener("click", closeBook);
 
 function persistBooks() { save(KEYS.books, state.books); renderBooks(); }
 
@@ -772,10 +790,15 @@ function updateActiveDots() {
     if (!heads.length) return;
     let current = heads[0].dataset.id;
     heads.forEach((h) => { if (h.getBoundingClientRect().top <= 120) current = h.dataset.id; });
+    const scroller = body.closest(".page");
+    const atBottom = scroller ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4
+      : innerHeight + scrollY >= document.documentElement.scrollHeight - 4;
+    if (atBottom && scroller && scroller.scrollTop > 0) current = heads[heads.length - 1].dataset.id;
     body.querySelectorAll(".dot-rail button").forEach((b) => b.classList.toggle("active", b.dataset.target === current));
   });
 }
 window.addEventListener("scroll", updateActiveDots, { passive: true });
+$("#book-page").addEventListener("scroll", updateActiveDots, { passive: true });
 
 function beginEdit(book) {
   state.drafts.set(book.id, { template: "blocks", doc: [], ...clone(book) });
@@ -798,16 +821,15 @@ $("#new-book").addEventListener("click", () => {
   };
   state.books.unshift(book);
   beginEdit(book);
-  renderBooks();
-  const first = document.querySelector(`[data-id="${book.id}"] [data-field="title"]`);
-  if (first) first.focus();
+  openBook(book.id);
+  $('#book-detail [data-field="title"]')?.focus();
 });
 
-$("#book-list").addEventListener("click", (e) => {
-  const card = e.target.closest("[data-id]");
+function onBookClick(e) {
+  const card = e.target.closest("[data-book]");
   const btn = e.target.closest("[data-action]");
   if (!card || !btn) return;
-  const book = state.books.find((b) => b.id === card.dataset.id);
+  const book = state.books.find((b) => b.id === card.dataset.book);
   if (!book) return;
   const d = state.drafts.get(book.id);
   const action = btn.dataset.action;
@@ -820,9 +842,8 @@ $("#book-list").addEventListener("click", (e) => {
   }
 
   switch (action) {
-    case "collapse":
-      book.collapsed = !book.collapsed;
-      persistBooks();
+    case "open":
+      openBook(book.id);
       break;
     case "goto": {
       const target = card.querySelector(`.blk[data-type="h1"][data-id="${btn.dataset.target}"]`);
@@ -838,12 +859,13 @@ $("#book-list").addEventListener("click", (e) => {
         if (!ok) return;
         state.books = state.books.filter((b) => b.id !== book.id);
         endEdit(book.id);
+        state.openBook = null;
         persistBooks();
       });
       break;
     case "cancel":
       endEdit(book.id);
-      if (book.isNew) state.books = state.books.filter((b) => b.id !== book.id);
+      if (book.isNew) { state.books = state.books.filter((b) => b.id !== book.id); state.openBook = null; }
       renderBooks();
       break;
     case "save": {
@@ -860,7 +882,9 @@ $("#book-list").addEventListener("click", (e) => {
       break;
     }
   }
-});
+}
+$("#book-list").addEventListener("click", onBookClick);
+$("#book-page").addEventListener("click", onBookClick);
 
 /* ---------- Inicio ---------- */
 if (!TITLES[state.tab]) state.tab = "tasks";

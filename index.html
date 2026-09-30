@@ -126,8 +126,20 @@
     <div class="page-body">
       <h2 id="notes-title" class="page-title"></h2>
       <div id="notes-meta" class="page-meta"></div>
-      <div id="notes-editor" class="editor doc" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Notas"></div>
+      <textarea id="notes-text" class="notes-area" rows="10" placeholder="Escribe aquí los detalles de la tarea…" aria-label="Notas"></textarea>    </div>
+  </div>
+
+  <!-- PÁGINA DE UN RESUMEN -->
+  <div id="book-page" class="page hidden" role="dialog" aria-label="Resumen del libro">
+    <div class="page-bar">
+      <button id="book-back" class="icon-btn" aria-label="Volver a los resúmenes">←</button>
+      <span id="book-bar-label" class="muted text-sm flex-1"></span>
+      <div id="book-bar-actions" class="flex items-center" style="margin-left:auto">
+        <button class="icon-btn" data-action="edit" aria-label="Editar">✎</button>
+        <button class="icon-btn danger" data-action="delete" aria-label="Eliminar">🗑</button>
+      </div>
     </div>
+    <div class="page-body" id="book-detail"></div>
   </div>
 
   <!-- MENÚ "/" DEL EDITOR -->
