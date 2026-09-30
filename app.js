@@ -1,6 +1,8 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
+const APP_VERSION = "0.2.0-beta";
+
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
   settings: "prod.settings", collapsed: "prod.collapsed",
@@ -36,6 +38,21 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 function esc(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+
+/* ---------- Diálogo de confirmación propio (confirm() no funciona en todos los visores) ---------- */
+function askConfirm(message, okLabel = "Eliminar") {
+  return new Promise((resolve) => {
+    $("#confirm-msg").textContent = message;
+    $("#confirm-ok").textContent = okLabel;
+    const box = $("#confirm");
+    box.classList.remove("hidden");
+    const done = (v) => { box.classList.add("hidden"); box.onclick = null; resolve(v); };
+    $("#confirm-ok").onclick = () => done(true);
+    $("#confirm-cancel").onclick = () => done(false);
+    box.onclick = (e) => { if (e.target === box) done(false); };
+  });
 }
 
 /* ---------- Navegación ---------- */
@@ -222,10 +239,11 @@ $("#task-groups").addEventListener("click", (e) => {
     }
     case "clear-done": {
       const n = state.tasks.filter((t) => t.done).length;
-      if (confirm(`¿Borrar ${n} tarea${n === 1 ? "" : "s"} completada${n === 1 ? "" : "s"}?`)) {
+      askConfirm(`¿Borrar ${n} tarea${n === 1 ? "" : "s"} completada${n === 1 ? "" : "s"}?`, "Borrar").then((ok) => {
+        if (!ok) return;
         state.tasks = state.tasks.filter((t) => !t.done);
         persistTasks();
-      }
+      });
       break;
     }
     case "delete-task":
@@ -265,6 +283,7 @@ $("#task-groups").addEventListener("change", (e) => {
 
 /* ---------- Ajustes ---------- */
 function renderSettings() {
+  $("#app-version").textContent = `Versión ${APP_VERSION}`;
   $$(".seg").forEach((seg) => {
     const current = state.settings[seg.dataset.setting];
     seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === current));
@@ -333,10 +352,10 @@ function bookViewHTML(b) {
     <div class="book-head">
       <button class="titles" data-action="collapse" aria-expanded="${!b.collapsed}">
         <div class="flex items-center gap-2">
-          <span class="chevron text-slate-400">▾</span>
+          <span class="chevron">▾</span>
           <div class="min-w-0">
             <h2 class="truncate text-lg font-bold">${esc(b.title) || "Sin título"}</h2>
-            <p class="truncate text-sm text-slate-500">${esc(b.author) || "Autor desconocido"}</p>
+            <p class="truncate text-sm muted">${esc(b.author) || "Autor desconocido"}</p>
           </div>
         </div>
       </button>
@@ -358,8 +377,8 @@ function bookEditHTML(b) {
       <input class="field" data-field="author" value="${esc(b.author)}" placeholder="Autor" aria-label="Autor">
       ${fields}
       <div class="flex gap-2">
-        <button data-action="cancel" class="flex-1 rounded-xl bg-slate-200 py-3 font-medium text-slate-700">Cancelar</button>
-        <button data-action="save" class="flex-1 rounded-xl bg-indigo-600 py-3 font-medium text-white">Guardar</button>
+        <button data-action="cancel" class="btn-secondary flex-1 py-3">Cancelar</button>
+        <button data-action="save" class="btn-primary flex-1 py-3">Guardar</button>
       </div>
     </div>`;
 }
@@ -400,11 +419,12 @@ $("#book-list").addEventListener("click", (e) => {
       renderBooks();
       break;
     case "delete":
-      if (confirm(`¿Eliminar el resumen "${book.title || "Sin título"}"?`)) {
+      askConfirm(`¿Eliminar el resumen "${book.title || "Sin título"}"?`).then((ok) => {
+        if (!ok) return;
         state.books = state.books.filter((b) => b.id !== book.id);
         state.editing.delete(book.id);
         persistBooks();
-      }
+      });
       break;
     case "cancel":
       state.editing.delete(book.id);

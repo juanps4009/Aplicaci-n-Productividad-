@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#4f46e5">
-  <title>Productividad</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Pendientes y Resúmenes</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -88,6 +88,19 @@
         <p class="setting-label">Recordatorios</p>
         <button id="enable-notif" class="btn-secondary w-full py-3"></button>
         <p class="muted mt-1 text-xs">Avisan de tareas con fecha de hoy o vencidas mientras la app esté abierta o instalada.</p>
+      </div>
+
+      <p id="app-version" class="muted mt-6 text-center text-xs"></p>
+    </div>
+  </div>
+
+  <!-- CONFIRMAR -->
+  <div id="confirm" class="sheet-backdrop hidden">
+    <div class="sheet" role="alertdialog" aria-labelledby="confirm-msg">
+      <p id="confirm-msg" class="text-lg font-bold"></p>
+      <div class="mt-4 flex gap-2">
+        <button id="confirm-cancel" class="btn-secondary flex-1 py-3">Cancelar</button>
+        <button id="confirm-ok" class="btn-danger flex-1 py-3">Eliminar</button>
       </div>
     </div>
   </div>
