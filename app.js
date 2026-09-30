@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.5.0-beta";
+const APP_VERSION = "0.6.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -20,11 +20,11 @@ function save(key, value) {
 
 const TYPE_FROM_ENTRY = { title: "h1", subtitle: "h2", text: "p" };
 const migrateTask = (t) => {
-  const task = { priority: "medium", due: "", notified: false, notes: "", ...t };
-  if (task.doc) { // formato de la 0.4: bloques → texto plano
-    if (!task.notes) task.notes = task.doc.map((b) => b.text).join("\n");
-    delete task.doc;
+  const task = { priority: "medium", due: "", notified: false, ...t };
+  if (!task.doc) { // formato antiguo: texto plano → bloques de texto
+    task.doc = (task.notes || "").split("\n").filter((l) => l.trim()).map((l) => ({ id: uid(), type: "p", text: l }));
   }
+  delete task.notes;
   return task;
 };
 const migrateBook = (b) => {
@@ -142,7 +142,7 @@ function taskHTML(t) {
     </li>`;
   }
   const overdue = t.due && !t.done && t.due < today();
-  const hasNotes = !!(t.notes || "").trim();
+  const hasNotes = (t.doc || []).some((b) => b.text.trim());
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
@@ -638,14 +638,13 @@ function mountEditor(root, blocks, onChange = () => {}) {
   });
 }
 
-/* ---------- Página de notas de una tarea (texto simple) ---------- */
+/* ---------- Página de notas de una tarea (editor con comandos "/") ---------- */
 let notesTimer = null;
-const growNotes = () => { const t = $("#notes-text"); t.style.height = "auto"; t.style.height = `${Math.max(t.scrollHeight, 240)}px`; };
 
 function saveNotes() {
   const task = state.tasks.find((t) => t.id === state.notesTask);
   if (!task) return;
-  task.notes = $("#notes-text").value;
+  task.doc = trimDoc(readDoc($("#notes-editor")));
   save(KEYS.tasks, state.tasks);
 }
 
@@ -656,28 +655,27 @@ function openNotes(task) {
   $("#notes-meta").innerHTML = `
     <span class="chip"><span class="dot" style="--prio:var(--${task.priority})"></span>Prioridad ${label.toLowerCase()}</span>
     ${task.due ? `<span class="chip">📅 ${dueLabel(task.due)}</span>` : ""}`;
-  $("#notes-text").value = task.notes || "";
+  const editor = $("#notes-editor");
+  mountEditor(editor, task.doc || [], () => {
+    clearTimeout(notesTimer);
+    notesTimer = setTimeout(saveNotes, 250);
+  });
   $("#notes-page").classList.remove("hidden");
   $("#notes-page").scrollTop = 0;
   document.body.classList.add("no-scroll");
-  growNotes();
-  if (!task.notes) $("#notes-text").focus();
+  if (!(task.doc || []).length) { editor.focus(); setCaret(editor.firstElementChild, 0); }
 }
 
 function closeNotes() {
   clearTimeout(notesTimer);
   saveNotes();
+  closeSlash();
   $("#notes-page").classList.add("hidden");
   document.body.classList.remove("no-scroll");
   state.notesTask = null;
   renderTasks();
 }
 $("#notes-back").addEventListener("click", closeNotes);
-$("#notes-text").addEventListener("input", () => {
-  growNotes();
-  clearTimeout(notesTimer);
-  notesTimer = setTimeout(saveNotes, 250);
-});
 
 /* ---------- Resúmenes de libros ---------- */
 const SECTIONS = [
