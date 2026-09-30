@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.6.1-beta";
+const APP_VERSION = "0.7.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -892,6 +892,11 @@ function onBookClick(e) {
 }
 $("#book-list").addEventListener("click", onBookClick);
 $("#book-page").addEventListener("click", onBookClick);
+
+/* ---------- Instalación y modo sin conexión ---------- */
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
 
 /* ---------- Inicio ---------- */
 if (!TITLES[state.tab]) state.tab = "tasks";
