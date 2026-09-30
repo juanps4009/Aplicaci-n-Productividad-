@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.6.0-beta";
+const APP_VERSION = "0.6.1-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -35,12 +35,21 @@ const migrateBook = (b) => {
   delete book.entries;
   return book;
 };
-function uidSeed() { return Math.random().toString(36).slice(2, 7); }
+
+/* Migra una lista guardada; un elemento dañado se descarta en vez de romper la app */
+function loadList(key, migrate) {
+  const raw = load(key, []);
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object" || !item.id) return [];
+    try { return [migrate(item)]; } catch { return []; }
+  });
+}
 
 const state = {
   // Migración: tareas de la v1 no tenían prioridad, fecha ni aviso
-  tasks: load(KEYS.tasks, []).map(migrateTask),
-  books: load(KEYS.books, []).map(migrateBook),
+  tasks: loadList(KEYS.tasks, migrateTask),
+  books: loadList(KEYS.books, migrateBook),
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
   settings: { priorityStyle: "dot", groupBy: "date", ...load(KEYS.settings, {}) },
@@ -54,7 +63,7 @@ const state = {
   editingTask: null,       // id de tarea en edición
 };
 
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
