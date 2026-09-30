@@ -48,22 +48,27 @@
     return out;
   }
 
+  /* Un recordatorio con onlyDevice (p. ej. un "posponer") solo suena en ese dispositivo. */
+  const forDevice = (rem, deviceId) => !rem.onlyDevice || !deviceId || rem.onlyDevice === deviceId;
+
   /* Próximos avisos de una tarea: [{ms, remId}] ordenados. Una tarea completada no avisa. */
-  function nextFires(task, from, horizonDays, limit) {
+  function nextFires(task, from, horizonDays, limit, deviceId) {
     if (task.done || !task.reminders || !task.reminders.length) return [];
     const to = from + (horizonDays || 14) * DAY;
     const all = [];
-    task.reminders.forEach((rem) => occurrences(rem, task, from, to).forEach((ms) => all.push({ ms, remId: rem.id })));
+    task.reminders.forEach((rem) => { if (forDevice(rem, deviceId)) occurrences(rem, task, from, to).forEach((ms) => all.push({ ms, remId: rem.id })); });
     all.sort((a, b) => a.ms - b.ms);
     return limit ? all.slice(0, limit) : all;
   }
 
-  /* Avisos que ya tocaba disparar: por recordatorio, el último instante en (max(lastFired, created), now] */
-  function dueFires(task, now) {
+  /* Avisos que ya tocaba disparar: por recordatorio, el último instante en (max(lastFired, created), now].
+     remState[remId].lastFired es local de cada dispositivo (no se sincroniza). */
+  function dueFires(task, now, remState, deviceId) {
     if (task.done || !task.reminders) return [];
     const res = [];
     task.reminders.forEach((rem) => {
-      const from = Math.max(rem.lastFired || 0, rem.created || 0);
+      if (!forDevice(rem, deviceId)) return;
+      const from = Math.max((remState && remState[rem.id] && remState[rem.id].lastFired) || 0, rem.created || 0);
       const list = occurrences(rem, task, from, now);
       if (list.length) res.push({ rem, ms: list[list.length - 1], count: list.length });
     });

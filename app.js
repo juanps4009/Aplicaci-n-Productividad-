@@ -1,11 +1,12 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.9.0-beta";
+const APP_VERSION = "0.10.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
   settings: "prod.settings", collapsed: "prod.collapsed",
+  remstate: "prod.remstate", sync: "prod.sync", tomb: "prod.tomb",
 };
 
 function load(key, fallback) {
@@ -54,7 +55,10 @@ const state = {
   books: loadList(KEYS.books, migrateBook),
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
-  settings: { theme: "auto", priorityStyle: "dot", groupBy: "date", ...load(KEYS.settings, {}) },
+  settings: { theme: "", priorityStyle: "dot", groupBy: "date", notifyHere: true, ...load(KEYS.settings, {}) },
+  remState: load(KEYS.remstate, {}),   // qué avisos ya sonaron EN ESTE dispositivo (no se sincroniza)
+  sync: { code: "", space: "", lastSeq: 0, lastPushAt: 0, ...load(KEYS.sync, {}) },
+  tombs: load(KEYS.tomb, []),          // borrados pendientes de propagar
   collapsed: { done: true, ...load(KEYS.collapsed, {}) },
   newPriority: "medium",
   editing: new Set(),      // ids de resúmenes en edición
@@ -67,7 +71,21 @@ const state = {
   editingTask: null,       // id de tarea en edición
 };
 
+/* Migraciones de datos guardados por versiones anteriores */
+(function migrateStorage() {
+  const st = state.settings;
+  if (!st.serverUrl && st.pushUrl) st.serverUrl = st.pushUrl; // antes la dirección era solo para avisos
+  delete st.pushUrl;
+  state.tasks.forEach((t) => t.reminders.forEach((r) => { // el estado de avisos pasa a ser local de cada dispositivo
+    if (r.lastFired !== undefined || r.acked !== undefined) {
+      if (!state.remState[r.id]) state.remState[r.id] = { lastFired: r.lastFired || 0, acked: !!r.acked };
+      delete r.lastFired; delete r.acked;
+    }
+  }));
+})();
+
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+const tracker = Sync.newTracker();
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
@@ -77,19 +95,18 @@ function esc(str) {
 }
 
 
-/* ---------- Tema (automático / claro / oscuro) ---------- */
+/* ---------- Tema (claro / oscuro con interruptor) ---------- */
 const hostTheme = document.documentElement.dataset.theme || ""; // el visor de betas puede fijar uno
-function applyTheme() {
-  const root = document.documentElement;
-  const pref = state.settings.theme;
-  if (pref === "light" || pref === "dark") root.dataset.theme = pref;
-  else if (hostTheme) root.dataset.theme = hostTheme;
-  else delete root.dataset.theme;
-  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = dark ? "#1e293b" : "#ffffff";
+function initTheme() { // la primera vez toma el tema del sistema y queda fijo
+  if (state.settings.theme === "light" || state.settings.theme === "dark") return;
+  state.settings.theme = hostTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  save(KEYS.settings, state.settings);
 }
-matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applyTheme);
+function applyTheme() {
+  document.documentElement.dataset.theme = state.settings.theme;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = state.settings.theme === "dark" ? "#1e293b" : "#ffffff";
+}
 
 /* ---------- Diálogo de confirmación propio (confirm() no funciona en todos los visores) ---------- */
 function askConfirm(message, okLabel = "Eliminar") {
@@ -170,7 +187,7 @@ function taskHTML(t) {
   }
   const overdue = t.due && !t.done && t.due < today();
   const hasNotes = (t.doc || []).some((b) => b.text.trim());
-  const next = t.done ? null : Reminders.nextFires(t, Date.now(), 60, 1)[0];
+  const next = t.done ? null : Reminders.nextFires(t, Date.now(), 60, 1, deviceId())[0];
   const meta = [t.due ? `📅 ${dueLabel(t.due)}` : "", next ? `🔔 ${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
@@ -242,7 +259,21 @@ function renderTasks() {
   renderAttention();
 }
 
-function persistTasks() { save(KEYS.tasks, state.tasks); renderTasks(); schedulePushSync(); }
+/* Guardar = estampar cambios (para sincronizar) + persistir + programar subidas */
+function commitTasks() {
+  Sync.stampChanges("tasks", state.tasks, tracker, state.tombs, Date.now());
+  save(KEYS.tasks, state.tasks);
+  save(KEYS.tomb, state.tombs);
+  schedulePushSync();
+  scheduleSync();
+}
+function commitBooks() {
+  Sync.stampChanges("books", state.books, tracker, state.tombs, Date.now());
+  save(KEYS.books, state.books);
+  save(KEYS.tomb, state.tombs);
+  scheduleSync();
+}
+function persistTasks() { commitTasks(); renderTasks(); }
 
 $("#task-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -337,6 +368,7 @@ $("#task-groups").addEventListener("click", (e) => {
     case "cancel-task":
       state.editingTask = null;
       renderTasks();
+      scheduleSync(500);
       break;
     case "save-task": {
       if (!task) break;
@@ -369,24 +401,35 @@ function renderSettings() {
     const current = state.settings[seg.dataset.setting];
     seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === current));
   });
-  const pushBtn = $("#push-toggle");
-  if (document.activeElement !== $("#push-url")) $("#push-url").value = state.settings.pushUrl || "";
-  $("#push-url").disabled = !!state.settings.pushOn;
-  pushBtn.textContent = state.settings.pushOn ? "Desactivar avisos con la app cerrada" : "Activar avisos con la app cerrada";
-  pushBtn.disabled = pushStatus.kind === "busy";
-  const ps = $("#push-status");
-  ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : "Sin configurar: los avisos solo suenan con la app abierta o al abrirla.");
-  ps.classList.toggle("rem-error", pushStatus.kind === "error");
+  $("#theme-switch").setAttribute("aria-checked", String(state.settings.theme === "dark"));
+  $("#notify-switch").setAttribute("aria-checked", String(!!state.settings.notifyHere));
+
   const btn = $("#enable-notif");
   if (!("Notification" in window)) {
     btn.textContent = "Notificaciones no disponibles"; btn.disabled = true;
   } else if (Notification.permission === "granted") {
-    btn.textContent = "🔔 Notificaciones activadas"; btn.disabled = true;
+    btn.textContent = "🔔 Permiso de notificaciones concedido"; btn.disabled = true;
   } else if (Notification.permission === "denied") {
-    btn.textContent = "Bloqueadas en el navegador"; btn.disabled = true;
+    btn.textContent = "Notificaciones bloqueadas en el navegador"; btn.disabled = true;
   } else {
-    btn.textContent = "Activar notificaciones"; btn.disabled = false;
+    btn.textContent = "Permitir notificaciones"; btn.disabled = false;
   }
+
+  const push = $("#push-switch");
+  push.setAttribute("aria-checked", String(!!state.settings.pushOn));
+  push.disabled = pushStatus.kind === "busy";
+  const ps = $("#push-status");
+  ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : state.settings.serverUrl
+    ? "Apagado: los avisos solo suenan con la app abierta o al abrirla."
+    : "Necesita tu servidor (abajo). Sin él, los avisos suenan con la app abierta o al abrirla.");
+  ps.classList.toggle("rem-error", pushStatus.kind === "error");
+
+  if (document.activeElement !== $("#server-url")) $("#server-url").value = state.settings.serverUrl || "";
+  $("#server-connect").textContent = state.settings.serverUrl ? "Guardar dirección" : "Conectar";
+  const ss = $("#server-status");
+  ss.textContent = serverStatus.text || (state.settings.serverUrl ? "Conectado." : "Sin servidor: todo funciona, pero solo en este dispositivo.");
+  ss.classList.toggle("rem-error", serverStatus.kind === "error");
+  renderSyncBody();
 }
 
 $("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
@@ -409,6 +452,23 @@ $("#enable-notif").addEventListener("click", async () => {
   runReminders();
 });
 
+$("#theme-switch").addEventListener("click", () => {
+  state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+  save(KEYS.settings, state.settings);
+  applyTheme();
+  renderSettings();
+});
+
+$("#notify-switch").addEventListener("click", async () => {
+  state.settings.notifyHere = !state.settings.notifyHere;
+  save(KEYS.settings, state.settings);
+  if (state.settings.notifyHere && "Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch { /* sin soporte */ }
+  }
+  schedulePushSync();
+  renderSettings();
+});
+
 /* ---------- Recordatorios por tarea ---------- */
 const PLAN_KINDS = [
   { kind: "once", label: "Fecha y hora" },
@@ -420,6 +480,12 @@ const PLAN_KINDS = [
 const WEEKDAY_CHIPS = [[1, "L"], [2, "M"], [3, "X"], [4, "J"], [5, "V"], [6, "S"], [0, "D"]];
 const pad2 = (n) => String(n).padStart(2, "0");
 const toInputValue = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+/* Un recordatorio creado aquí empieza a contar desde su creación (no dispara lo anterior) */
+function addReminder(task, rem) {
+  task.reminders.push(rem);
+  state.remState[rem.id] = { lastFired: rem.created, acked: true };
+  save(KEYS.remstate, state.remState);
+}
 const remTask = () => state.tasks.find((t) => t.id === state.remTask);
 const toMinutes = (hm) => { const [h, m] = (hm || "0:0").split(":").map(Number); return h * 60 + m; };
 
@@ -491,8 +557,8 @@ function renderReminderSheet() {
   const task = remTask();
   if (!task) return;
   $("#rem-title").textContent = task.text;
-  const rows = task.reminders.map((rem) => {
-    const nx = Reminders.nextFires({ ...task, done: false, reminders: [rem] }, Date.now(), 60, 1)[0];
+  const rows = task.reminders.filter((r) => !r.onlyDevice || r.onlyDevice === deviceId()).map((rem) => {
+    const nx = Reminders.nextFires({ ...task, done: false, reminders: [rem] }, Date.now(), 60, 1, deviceId())[0];
     return `
       <div class="rem-row">
         <div class="min-w-0"><b>${esc(Reminders.describe(rem))}</b><small>${nx ? `Próximo: ${Reminders.fmtStamp(nx.ms)}` : "Sin próximos avisos"}</small></div>
@@ -538,7 +604,7 @@ async function saveDraft() {
   if ("Notification" in window && Notification.permission === "default") {
     try { await Notification.requestPermission(); } catch { /* sin soporte */ }
   }
-  task.reminders.push(rem);
+  addReminder(task, rem);
   state.remDraft = null;
   persistTasks();
   renderReminderSheet();
@@ -577,12 +643,12 @@ $("#reminder-sheet").addEventListener("click", (e) => {
 });
 
 /* Avisos por atender: recordatorios que ya sonaron (o se perdieron con la app cerrada), una fila por tarea */
-const pendingOf = (task) => task.reminders.filter((r) => r.lastFired && !r.acked);
+const pendingOf = (task) => task.reminders.filter((r) => { const st = state.remState[r.id]; return st && st.lastFired && !st.acked; });
 
 function renderAttention() {
   const items = state.tasks
     .filter((t) => !t.done && pendingOf(t).length)
-    .map((task) => ({ task, last: Math.max(...pendingOf(task).map((r) => r.lastFired)) }))
+    .map((task) => ({ task, last: Math.max(...pendingOf(task).map((r) => state.remState[r.id].lastFired)) }))
     .sort((a, b) => b.last - a.last);
   const box = $("#attention");
   box.classList.toggle("hidden", !items.length);
@@ -600,8 +666,9 @@ function renderAttention() {
 
 function acknowledge(task) {
   const pending = pendingOf(task);
+  pending.forEach((r) => { state.remState[r.id].acked = true; });
   task.reminders = task.reminders.filter((r) => !(pending.includes(r) && r.kind === "once"));
-  pending.forEach((r) => { r.acked = true; });
+  save(KEYS.remstate, state.remState);
 }
 
 $("#attention").addEventListener("click", (e) => {
@@ -615,7 +682,7 @@ $("#attention").addEventListener("click", (e) => {
     let at;
     if (action === "att-tomorrow") { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); at = d.getTime(); }
     else at = Math.ceil((Date.now() + Number(btn.dataset.min) * 60000) / 60000) * 60000;
-    task.reminders.push({ id: uid(), kind: "once", atMs: at, created: Date.now(), auto: true });
+    addReminder(task, { id: uid(), kind: "once", atMs: at, created: Date.now(), auto: true, onlyDevice: deviceId() }); // solo suena en este dispositivo
   }
   persistTasks();
 });
@@ -633,20 +700,30 @@ async function showNotice(title, body, tag) {
 
 function runReminders() {
   const now = Date.now();
+  const dev = deviceId();
   let changed = false;
   state.tasks.forEach((task) => {
-    Reminders.dueFires(task, now).forEach(({ rem, ms }) => {
-      rem.lastFired = ms;
-      rem.acked = false;
+    task.reminders.forEach((rem) => { // visto por primera vez aquí (p. ej. llegó por sincronización): empieza desde ahora
+      if (!state.remState[rem.id]) { state.remState[rem.id] = { lastFired: now, acked: true }; changed = true; }
+    });
+    Reminders.dueFires(task, now, state.remState, dev).forEach(({ rem, ms }) => {
+      const st = state.remState[rem.id];
+      st.lastFired = ms;
+      st.acked = !state.settings.notifyHere; // sin avisos en este dispositivo: se descartan en silencio
       changed = true;
-      if (now - ms <= 3 * 60000) { // si se perdió hace rato, solo queda en "avisos por atender"
+      if (state.settings.notifyHere && now - ms <= 3 * 60000) { // si se perdió hace rato, solo queda en "avisos por atender"
         showNotice(task.text, task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", `r-${rem.id}-${ms}`);
       }
     });
   });
-  if (changed) { save(KEYS.tasks, state.tasks); renderTasks(); schedulePushSync(); }
+  if (changed) {
+    const live = new Set(state.tasks.flatMap((t) => t.reminders.map((r) => r.id)));
+    Object.keys(state.remState).forEach((id) => { if (!live.has(id)) delete state.remState[id]; });
+    save(KEYS.remstate, state.remState);
+    renderTasks();
+  }
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { runReminders(); schedulePushSync(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { runReminders(); schedulePushSync(); scheduleSync(300); } });
 
 /* ---------- Avisos con la app cerrada (servidor de avisos / push) ---------- */
 /* La app le manda al servidor los próximos avisos; el servidor los entrega a la hora exacta aunque
@@ -674,8 +751,8 @@ async function pushGet(url) {
 }
 
 async function enablePush() {
-  const url = $("#push-url").value.trim().replace(/\/+$/, "");
-  if (!/^https:\/\/[^/]+/.test(url)) return setPushStatus("error", "Escribe la dirección completa, empezando con https://");
+  const url = state.settings.serverUrl;
+  if (!url) return setPushStatus("error", "Primero conecta tu servidor (campo «Dirección de tu servidor», más abajo).");
   if (!pushSupported()) return setPushStatus("error", "Este navegador no admite avisos con la app cerrada. Instala la app desde su dirección web.");
   setPushStatus("busy", "Conectando…");
   try {
@@ -686,7 +763,7 @@ async function enablePush() {
     let sub = await reg.pushManager.getSubscription();
     if (sub && state.settings.vapidKey !== publicKey) { await sub.unsubscribe(); sub = null; } // servidor nuevo: otra clave
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(publicKey) });
-    Object.assign(state.settings, { pushUrl: url, pushOn: true, vapidKey: publicKey });
+    Object.assign(state.settings, { pushOn: true, vapidKey: publicKey });
     save(KEYS.settings, state.settings);
     await syncPush();
   } catch (err) {
@@ -700,8 +777,8 @@ async function disablePush() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) await sub.unsubscribe();
-    if (state.settings.pushUrl) {
-      await fetch(`${state.settings.pushUrl}/unsync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: deviceId() }) }).catch(() => {});
+    if (state.settings.serverUrl) {
+      await fetch(`${state.settings.serverUrl}/unsync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: deviceId() }) }).catch(() => {});
     }
   } catch { /* ya estaba desactivado */ }
   state.settings.pushOn = false;
@@ -716,23 +793,23 @@ function schedulePushSync() {
 }
 
 async function syncPush() {
-  const { pushOn, pushUrl } = state.settings;
-  if (!pushOn || !pushUrl) return;
+  const { pushOn, serverUrl } = state.settings;
+  if (!pushOn || !serverUrl) return;
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (!sub) throw new Error("La suscripción se perdió. Desactiva y vuelve a activar los avisos.");
     const now = Date.now();
     const items = [];
-    state.tasks.forEach((task) => {
-      Reminders.nextFires(task, now, 14, 100).forEach(({ ms, remId }) => items.push({
+    (state.settings.notifyHere ? state.tasks : []).forEach((task) => {
+      Reminders.nextFires(task, now, 14, 100, deviceId()).forEach(({ ms, remId }) => items.push({
         id: `${remId}:${ms}`, fireAt: ms, title: task.text.slice(0, 120),
         body: task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", tag: `r-${remId}-${ms}`,
       }));
     });
     items.sort((a, b) => a.fireAt - b.fireAt);
     items.length = Math.min(items.length, 300);
-    const res = await fetch(`${pushUrl}/sync`, {
+    const res = await fetch(`${serverUrl}/sync`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device: deviceId(), subscription: sub.toJSON(), items }),
     });
@@ -743,7 +820,211 @@ async function syncPush() {
   }
 }
 
-$("#push-toggle").addEventListener("click", () => (state.settings.pushOn ? disablePush() : enablePush()));
+$("#push-switch").addEventListener("click", () => (state.settings.pushOn ? disablePush() : enablePush()));
+
+/* ---------- Servidor y sincronización entre dispositivos ---------- */
+let serverStatus = { kind: "idle", text: "" };
+let syncInfo = { kind: "idle", text: "", at: 0 };
+let syncTimer = null, syncing = false, qrOpen = false;
+
+const syncLinked = () => !!(state.settings.serverUrl && state.sync.space);
+const saveSync = () => save(KEYS.sync, state.sync);
+
+async function connectServer() {
+  const url = $("#server-url").value.trim().replace(/\/+$/, "");
+  const fail = (text) => { serverStatus = { kind: "error", text }; renderSettings(); };
+  if (!/^https:\/\/[^/]+/.test(url)) return fail("Escribe la dirección completa, empezando con https://");
+  serverStatus = { kind: "busy", text: "Conectando…" };
+  renderSettings();
+  try {
+    const res = await fetch(`${url}/`);
+    const txt = await res.text();
+    if (!res.ok || !txt.includes("funcionando")) return fail("Esa dirección no responde como tu servidor de avisos.");
+    if (state.settings.serverUrl !== url) { // servidor distinto: hay que volver a subir todo
+      state.settings.serverUrl = url;
+      Object.assign(state.sync, { lastSeq: 0, lastPushAt: 0 });
+      saveSync();
+      save(KEYS.settings, state.settings);
+    }
+    serverStatus = { kind: "ok", text: "Conectado ✓" };
+    renderSettings();
+    scheduleSync(0);
+  } catch (err) {
+    fail(err && err.name === "TypeError" ? "No pude conectar. Revisa que la dirección sea correcta." : (err && err.message) || "Error desconocido");
+  }
+}
+$("#server-connect").addEventListener("click", connectServer);
+
+function agoText(ms) {
+  const m = Math.floor((Date.now() - ms) / 60000);
+  return m < 1 ? "hace un momento" : m < 60 ? `hace ${m} min` : `hace ${Math.floor(m / 60)} h`;
+}
+
+function qrSvg() {
+  const url = `${location.origin}${location.pathname}#sync=${state.sync.code}&server=${encodeURIComponent(state.settings.serverUrl)}`;
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+}
+
+function renderSyncBody() {
+  const box = $("#sync-body");
+  const typed = $("#sync-code-in") ? $("#sync-code-in").value : "";
+  if (!state.settings.serverUrl) {
+    box.innerHTML = `<p class="muted text-xs">Primero conecta tu servidor (campo de arriba). Sin servidor, tus datos solo viven en este dispositivo.</p>`;
+    return;
+  }
+  if (!state.sync.space) {
+    box.innerHTML = `
+      <div class="sync-actions">
+        <button class="btn-primary py-3" data-action="sync-create">Crear código nuevo</button>
+        <p class="muted text-xs">Si ya creaste uno en tu otro dispositivo, escríbelo aquí:</p>
+        <input id="sync-code-in" class="field" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" aria-label="Código de sincronización" value="${esc(typed)}">
+        <button class="btn-secondary py-3" data-action="sync-join">Unirme con este código</button>
+        ${syncInfo.kind === "error" ? `<p class="rem-error text-xs" role="alert">${esc(syncInfo.text)}</p>` : ""}
+      </div>`;
+    return;
+  }
+  const status = syncInfo.kind === "busy" ? "Sincronizando…"
+    : syncInfo.kind === "ok" ? `Sincronizado ${agoText(syncInfo.at)} · ${state.tasks.length} tarea${state.tasks.length === 1 ? "" : "s"} · ${state.books.filter((b) => !b.isNew).length} resumen${state.books.length === 1 ? "" : "es"}`
+      : syncInfo.text;
+  box.innerHTML = `
+    <div class="sync-actions">
+      <div class="code-box" aria-label="Tu código de sincronización">${Sync.formatCode(state.sync.code)}</div>
+      <div class="sync-row">
+        <button class="btn-secondary py-3" data-action="sync-copy">Copiar</button>
+        <button class="btn-secondary py-3" data-action="sync-qr">${qrOpen ? "Ocultar QR" : "Mostrar QR"}</button>
+      </div>
+      ${qrOpen ? `<div class="qr-box">${qrSvg()}<p class="muted text-xs">Escanéalo con la cámara de tu otro dispositivo.</p></div>` : ""}
+      <p class="text-xs ${syncInfo.kind === "error" ? "rem-error" : "muted"}" role="status">${esc(status)}</p>
+      <div class="sync-row">
+        <button class="btn-secondary py-3" data-action="sync-now">Sincronizar ahora</button>
+        <button class="btn-danger-soft py-3" data-action="sync-unlink">Desvincular</button>
+      </div>
+    </div>`;
+}
+
+async function joinSpace(code) {
+  state.sync = { code, space: await Sync.spaceId(code), lastSeq: 0, lastPushAt: 0 };
+  saveSync();
+  qrOpen = false;
+  syncInfo = { kind: "busy", text: "", at: 0 };
+  renderSettings();
+  await syncNow();
+}
+
+$("#sync-body").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  switch (btn.dataset.action) {
+    case "sync-create":
+      await joinSpace(Sync.makeCode(crypto.getRandomValues(new Uint8Array(20))));
+      break;
+    case "sync-join": {
+      const code = Sync.normalizeCode($("#sync-code-in").value);
+      if (!Sync.isValidCode(code)) { syncInfo = { kind: "error", text: "El código debe tener 20 letras y números (por ejemplo K7QM-2XPD-9RVA-4HNT-B3WE).", at: 0 }; renderSettings(); break; }
+      await joinSpace(code);
+      break;
+    }
+    case "sync-copy":
+      try { await navigator.clipboard.writeText(Sync.formatCode(state.sync.code)); btn.textContent = "Copiado ✓"; }
+      catch { btn.textContent = "Selecciona y copia el código"; }
+      setTimeout(() => { btn.textContent = "Copiar"; }, 1800);
+      break;
+    case "sync-qr": qrOpen = !qrOpen; renderSettings(); break;
+    case "sync-now": syncNow(); break;
+    case "sync-unlink":
+      if (await askConfirm("¿Desvincular este dispositivo? Tus datos se quedan aquí, pero dejan de sincronizarse.", "Desvincular")) {
+        state.sync = { code: "", space: "", lastSeq: 0, lastPushAt: 0 };
+        saveSync();
+        syncInfo = { kind: "idle", text: "", at: 0 };
+        qrOpen = false;
+        renderSettings();
+      }
+      break;
+  }
+});
+
+/* Ids que se están editando ahora mismo: no se pisan con datos que llegan */
+const busyIds = () => new Set([...state.editing, ...state.drafts.keys(), state.editingTask, state.notesTask].filter(Boolean));
+
+function scheduleSync(delay = 2000) {
+  if (!syncLinked()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, delay);
+}
+
+async function syncNow() {
+  if (!syncLinked()) return;
+  if (syncing) return scheduleSync(1500);
+  syncing = true;
+  const t0 = Date.now();
+  const { serverUrl } = state.settings;
+  try {
+    commitTasksQuiet();
+    const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt);
+    let since = state.sync.lastSeq, deferred = 0, changed = false, more = false;
+    do {
+      const res = await fetch(`${serverUrl}/space/sync`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ space: state.sync.space, since, records: pending.splice(0, 100) }),
+      });
+      if (!res.ok) throw new Error(res.status === 413 ? "El espacio de sincronización está lleno." : `El servidor respondió ${res.status}`);
+      const data = await res.json();
+      const busy = busyIds();
+      const rt = Sync.mergeIncoming("tasks", state.tasks, data.records, tracker, state.tombs, busy);
+      const rb = Sync.mergeIncoming("books", state.books, data.records, tracker, state.tombs, busy);
+      deferred += rt.deferred.length + rb.deferred.length;
+      changed = changed || rt.changed || rb.changed;
+      since = data.seq;
+      more = data.more;
+    } while (pending.length || more);
+    if (!deferred) state.sync.lastSeq = since; // si algo quedó en espera, se vuelve a pedir después
+    state.sync.lastPushAt = t0;
+    state.tombs = Sync.purgeTombs(state.tombs, Date.now(), 60);
+    saveSync();
+    save(KEYS.tasks, state.tasks);
+    save(KEYS.books, state.books);
+    save(KEYS.tomb, state.tombs);
+    syncInfo = { kind: "ok", text: "", at: Date.now() };
+    if (changed) {
+      runReminders();
+      if (state.editingTask === null) renderTasks();
+      if (state.editing.size) renderBookList(); else renderBooks();
+      schedulePushSync();
+    }
+  } catch (err) {
+    syncInfo = { kind: "error", at: 0, text: err && err.name === "TypeError" ? "Sin conexión con el servidor; se reintentará." : err.message };
+  } finally {
+    syncing = false;
+    renderSettings();
+  }
+}
+
+/* Estampa y guarda sin programar otra sincronización */
+function commitTasksQuiet() {
+  const now = Date.now();
+  Sync.stampChanges("tasks", state.tasks, tracker, state.tombs, now);
+  Sync.stampChanges("books", state.books, tracker, state.tombs, now);
+}
+
+/* Enlace de vinculación (el QR): https://…/#sync=CODIGO&server=URL */
+function handleLinkHash() {
+  if (!location.hash.startsWith("#sync=")) return;
+  const params = new URLSearchParams(location.hash.slice(1));
+  const code = Sync.normalizeCode(params.get("sync"));
+  const server = (params.get("server") || "").replace(/\/+$/, "");
+  history.replaceState(null, "", location.pathname + location.search); // el código no se queda en la barra de direcciones
+  if (!Sync.isValidCode(code) || !/^https:\/\/[^/]+/.test(server) || state.sync.code === code) return;
+  askConfirm(`¿Unir este dispositivo al código ${Sync.formatCode(code)}? Tus tareas y resúmenes de aquí se sumarán a los del otro dispositivo.`, "Unir").then(async (ok) => {
+    if (!ok) return;
+    if (state.settings.serverUrl !== server) { state.settings.serverUrl = server; save(KEYS.settings, state.settings); }
+    renderSettings();
+    $("#settings").classList.remove("hidden");
+    await joinSpace(code);
+  });
+}
 
 /* ---------- Editor libre (estilo Notion) ---------- */
 /* Un documento es una lista de bloques {id, type, text}. Lo que es título, subtítulo, lista o cita
@@ -1004,7 +1285,7 @@ function saveNotes() {
   const task = state.tasks.find((t) => t.id === state.notesTask);
   if (!task) return;
   task.doc = trimDoc(readDoc($("#notes-editor")));
-  save(KEYS.tasks, state.tasks);
+  commitTasks();
 }
 
 function openNotes(task) {
@@ -1033,6 +1314,7 @@ function closeNotes() {
   document.body.classList.remove("no-scroll");
   state.notesTask = null;
   renderTasks();
+  scheduleSync(500);
 }
 $("#notes-back").addEventListener("click", closeNotes);
 
@@ -1099,6 +1381,11 @@ function bookEditHTML(d) {
 
 function renderBooks() {
   closeSlash();
+  renderBookList();
+  renderBookPage();
+}
+
+function renderBookList() {
   $("#book-list").innerHTML = state.books.map((b) => `
     <article class="book-card" data-book="${b.id}">
       <button class="book-open" data-action="open">
@@ -1107,7 +1394,6 @@ function renderBooks() {
       </button>
     </article>`).join("");
   $("#book-empty").classList.toggle("hidden", state.books.length > 0);
-  renderBookPage();
 }
 
 function renderBookPage() {
@@ -1138,7 +1424,7 @@ function closeBook() {
 }
 $("#book-back").addEventListener("click", closeBook);
 
-function persistBooks() { save(KEYS.books, state.books); renderBooks(); }
+function persistBooks() { commitBooks(); renderBooks(); }
 
 /* Punto activo del carril: el último título que ya pasó por la parte alta de la pantalla */
 function updateActiveDots() {
@@ -1162,7 +1448,7 @@ function beginEdit(book) {
   state.editing.add(book.id);
 }
 
-function endEdit(id) { state.editing.delete(id); state.drafts.delete(id); }
+function endEdit(id) { state.editing.delete(id); state.drafts.delete(id); scheduleSync(500); }
 
 /* Vuelca lo escrito en pantalla al borrador (antes de re-renderizar) */
 function syncDraft(card, d) {
@@ -1253,11 +1539,22 @@ if (!TITLES[state.tab]) state.tab = "tasks";
 if (!["all", "pending", "done"].includes(state.filter)) state.filter = "all";
 // Un borrador nuevo sin guardar no sobrevive a una recarga
 state.books = state.books.filter((b) => !b.isNew);
+initTheme();
 applyTheme();
 showTab(state.tab);
 renderTasks();
 renderBooks();
 renderSettings();
+// migración de datos: registra el estado actual y guarda (sellos de sincronización, estado de avisos)
+Sync.prime("tasks", state.tasks, tracker, Date.now());
+Sync.prime("books", state.books, tracker, Date.now());
+save(KEYS.tasks, state.tasks);
+save(KEYS.books, state.books);
+save(KEYS.settings, state.settings);
 runReminders();
 schedulePushSync();
+handleLinkHash();
+window.addEventListener("hashchange", handleLinkHash);
+scheduleSync(300);
+setInterval(() => { if (!document.hidden) scheduleSync(0); }, 60000);
 setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);

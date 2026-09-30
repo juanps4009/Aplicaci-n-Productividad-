@@ -23,6 +23,9 @@ async function ensureSchema(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS reminders (id TEXT NOT NULL, device TEXT NOT NULL, fire_at INTEGER NOT NULL, title TEXT, body TEXT, tag TEXT, attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (device, id))"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_fire ON reminders (fire_at)"),
     db.prepare("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS spaces (space TEXT PRIMARY KEY, created_at INTEGER NOT NULL, touched_at INTEGER NOT NULL)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS records (space TEXT NOT NULL, id TEXT NOT NULL, col TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL DEFAULT '', seq INTEGER NOT NULL, PRIMARY KEY (space, id))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_records_seq ON records (space, seq)"),
   ]);
   schemaReady = true;
 }
@@ -100,6 +103,9 @@ async function deliver(env) {
   const now = Date.now();
   await db.prepare("DELETE FROM reminders WHERE fire_at < ?1").bind(now - DAY).run();
   await db.prepare("DELETE FROM devices WHERE updated_at < ?1").bind(now - 90 * DAY).run();
+  await db.prepare("DELETE FROM records WHERE deleted = 1 AND updated_at < ?1").bind(now - 60 * DAY).run();
+  await db.prepare("DELETE FROM records WHERE space IN (SELECT space FROM spaces WHERE touched_at < ?1)").bind(now - 180 * DAY).run();
+  await db.prepare("DELETE FROM spaces WHERE touched_at < ?1").bind(now - 180 * DAY).run();
   const { results } = await db.prepare(
     "SELECT r.id, r.device, r.title, r.body, r.tag, r.attempts, d.subscription FROM reminders r JOIN devices d ON d.id = r.device WHERE r.fire_at <= ?1 ORDER BY r.fire_at LIMIT 40"
   ).bind(now).all();
@@ -156,6 +162,51 @@ async function handleSync(request, env) {
   return json({ ok: true, count: rows.length });
 }
 
+/* ---------- Sincronización entre dispositivos (espacio = hash del código) ---------- */
+const MAX_RECORDS_PER_SPACE = 3000;
+const SEQ_NEXT = "(SELECT COALESCE(MAX(seq), 0) + 1 FROM records WHERE space = ?1)";
+
+async function handleSpaceSync(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "JSON inválido" }, 400); }
+  const { space, since, records } = body || {};
+  if (!/^[0-9a-f]{64}$/.test(space || "")) return json({ error: "space inválido" }, 400);
+  if (!Number.isInteger(since) || since < 0) return json({ error: "since inválido" }, 400);
+  if (!Array.isArray(records) || records.length > 100) return json({ error: "records inválidos" }, 400);
+  const now = Date.now();
+  for (const r of records) {
+    const ok = r && str(r.id, 80) && r.id.length > 0 && (r.col === "tasks" || r.col === "books") &&
+      Number.isFinite(r.updatedAt) && r.updatedAt > 0 && r.updatedAt <= now + DAY &&
+      (r.deleted === 0 || r.deleted === 1) && str(r.data, 400000);
+    if (!ok) return json({ error: "registro inválido" }, 400);
+  }
+  const db = env.DB;
+  if (records.length) {
+    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM records WHERE space = ?1").bind(space).first();
+    if (n + records.length > MAX_RECORDS_PER_SPACE) return json({ error: "espacio lleno" }, 413);
+    await db.batch([
+      db.prepare("INSERT INTO spaces (space, created_at, touched_at) VALUES (?1, ?2, ?2) ON CONFLICT(space) DO UPDATE SET touched_at = ?2").bind(space, now),
+      ...records.map((r) => db.prepare(
+        `INSERT INTO records (space, id, col, updated_at, deleted, data, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ${SEQ_NEXT})
+         ON CONFLICT(space, id) DO UPDATE SET col = ?3, updated_at = ?4, deleted = ?5, data = ?6, seq = ${SEQ_NEXT}
+         WHERE excluded.updated_at > records.updated_at`
+      ).bind(space, r.id, r.col, r.updatedAt, r.deleted, r.data)),
+    ]);
+  } else {
+    await db.prepare("UPDATE spaces SET touched_at = ?2 WHERE space = ?1").bind(space, now).run();
+  }
+  const { results } = await db.prepare(
+    "SELECT id, col, updated_at, deleted, data, seq FROM records WHERE space = ?1 AND seq > ?2 ORDER BY seq LIMIT 501"
+  ).bind(space, since).all();
+  const more = results.length > 500;
+  const page = more ? results.slice(0, 500) : results;
+  return json({
+    records: page.map((r) => ({ id: r.id, col: r.col, updatedAt: r.updated_at, deleted: r.deleted, data: r.data })),
+    seq: page.length ? page[page.length - 1].seq : since,
+    more,
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -164,6 +215,7 @@ export default {
       await ensureSchema(env.DB);
       if (pathname === "/vapid" && request.method === "GET") return json({ publicKey: (await getKeys(env.DB)).publicB64 });
       if (pathname === "/sync" && request.method === "PUT") return await handleSync(request, env);
+      if (pathname === "/space/sync" && request.method === "POST") return await handleSpaceSync(request, env);
       if (pathname === "/unsync" && request.method === "POST") {
         const { device } = await request.json().catch(() => ({}));
         if (!/^[A-Za-z0-9_-]{16,64}$/.test(device || "")) return json({ error: "device inválido" }, 400);

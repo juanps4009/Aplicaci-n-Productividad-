@@ -1,7 +1,13 @@
-# Servidor de avisos (para recibir recordatorios con la app cerrada)
+# Tu servidor (avisos con la app cerrada + sincronizar celular y computador)
 
-Sin esto, la app avisa cuando está abierta o al abrirla. Con esto, el aviso llega **a la hora exacta aunque la app esté cerrada**.
-Es gratis (plan gratuito de Cloudflare) y es tuyo: nadie más lo usa.
+Un "servidor" es solo una cajita gratuita en internet. Esta hace dos cosas:
+
+1. **Avisos con la app cerrada:** el recordatorio llega a la hora exacta aunque la app esté cerrada.
+2. **Sincronizar dispositivos:** las tareas y resúmenes de tu celular y de tu computador son los mismos. Cada dispositivo sube sus cambios y baja los del otro.
+
+Es gratis (plan gratuito de Cloudflare) y es tuyo: nadie más lo usa. Sin él, la app sigue funcionando, pero cada dispositivo guarda sus propios datos.
+
+> Si ya habías pegado una versión anterior de `index.js`, **vuelve a pegar el archivo completo y pulsa Deploy**: esta versión añade la sincronización. La base de datos no cambia; las tablas nuevas se crean solas.
 
 Lo que hace: la app le envía al servidor el texto y la hora de tus próximos recordatorios (14 días). Cada minuto el servidor revisa cuáles ya tocan y los manda como notificación al celular. Al completar o borrar una tarea, sus avisos se cancelan solos.
 
@@ -18,11 +24,29 @@ Los nombres de los menús de Cloudflare cambian de vez en cuando; si algo no coi
 7. **Comprobar.** Abre la dirección de tu Worker (termina en `.workers.dev`). Debe decir **«Servidor de avisos funcionando ✓»**.
 8. *(Opcional, recomendado)* Worker → *Settings* → *Variables and Secrets* → **Add** → nombre `VAPID_SUBJECT`, valor `mailto:tu-correo@ejemplo.com`.
 
-## En la app
+## En la app (avisos con la app cerrada)
 
-1. Abre la app **instalada** (no desde una pestaña cualquiera) → ⚙ Ajustes → *Avisos con la app cerrada*.
-2. Pega la dirección de tu Worker (con `https://`) y pulsa **Activar avisos con la app cerrada**. Acepta el permiso de notificaciones.
+1. Abre la app **instalada** → ⚙ Ajustes → *Tus dispositivos* → *Dirección de tu servidor*: pega la dirección de tu Worker (con `https://`) y pulsa **Conectar**.
+2. Más arriba, en *Avisos en este dispositivo*, pulsa **Permitir notificaciones** y activa el interruptor **También con la app cerrada**.
 3. Debe decir «Activo · N avisos programados». Prueba: en una tarea, menú ⋮ → *Recordatorio* → *Fecha y hora* dentro de 2 minutos, cierra la app y espera.
+
+## Usar la app en el celular y en el computador (mismos datos)
+
+**Computador:** abre la misma dirección de la app (la de GitHub Pages) en Chrome o Edge. Puedes instalarla como app de escritorio con el icono «Instalar» de la barra de direcciones (o menú ⋮ → *Instalar…*).
+
+**Unir los dos dispositivos** (una sola vez):
+1. En el primero: ⚙ Ajustes → *Tus dispositivos* → pega la dirección del servidor → **Conectar** → **Crear código nuevo**. Aparece un código como `K7QM-2XPD-9RVA-4HNT-B3WE`.
+2. En el segundo: pega la misma dirección del servidor → **Conectar** → escribe el código en *Unirme con este código* (o usa el QR, abajo).
+3. Listo: cada cambio se sube a los pocos segundos y se baja en el otro dispositivo (al abrir la app y cada minuto con la app visible). Hay un botón **Sincronizar ahora**.
+
+**Con QR:** crea el código en el computador, pulsa **Mostrar QR** y escanéalo con la cámara normal del celular. Se abre la app, te pregunta si quieres unir el dispositivo y listo.
+
+Cosas de la sincronización:
+- El código es la llave: quien lo tenga puede ver y cambiar tus datos. No lo compartas. Puedes **Desvincular** un dispositivo cuando quieras (sus datos se quedan en él).
+- Si ya tenías datos en los dos dispositivos, al unirlos **se suman** (no se pierde nada).
+- Si cambias lo mismo en los dos a la vez, gana el cambio más reciente de esa tarea o de ese resumen completo.
+- Cada dispositivo decide si recibe recordatorios (*Recibir recordatorios aquí*). El modo oscuro también es de cada dispositivo. Un «posponer» solo suena en el dispositivo donde lo pospusiste.
+- Tus tareas y resúmenes se guardan en tu propia base de Cloudflare sin cifrar. Es tu cuenta, pero pensarlo antes de guardar datos muy sensibles.
 
 ## Cosas a saber
 

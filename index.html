@@ -74,13 +74,9 @@
         <button id="close-settings" class="icon-btn" aria-label="Cerrar">✕</button>
       </div>
 
-      <div class="setting">
-        <p class="setting-label">Tema</p>
-        <div class="seg" data-setting="theme">
-          <button data-value="auto">Automático</button>
-          <button data-value="light">Claro</button>
-          <button data-value="dark">Oscuro</button>
-        </div>
+      <div class="setting switch-row">
+        <p class="setting-label">Modo oscuro</p>
+        <button id="theme-switch" class="switch" role="switch" aria-checked="false" aria-label="Modo oscuro"><span></span></button>
       </div>
 
       <div class="setting">
@@ -99,18 +95,28 @@
         </div>
       </div>
 
-      <div class="setting">
-        <p class="setting-label">Recordatorios</p>
-        <button id="enable-notif" class="btn-secondary w-full py-3"></button>
-        <p class="muted mt-1 text-xs">Activa las notificaciones para los recordatorios de cada tarea (menú ⋮ de la tarea → Recordatorio).</p>
+      <h3 class="settings-title">Avisos en este dispositivo</h3>
+      <div class="setting switch-row">
+        <p class="setting-label">Recibir recordatorios aquí</p>
+        <button id="notify-switch" class="switch" role="switch" aria-checked="true" aria-label="Recibir recordatorios en este dispositivo"><span></span></button>
       </div>
+      <button id="enable-notif" class="btn-secondary w-full py-3"></button>
+      <div class="setting switch-row">
+        <p class="setting-label">También con la app cerrada</p>
+        <button id="push-switch" class="switch" role="switch" aria-checked="false" aria-label="Avisos con la app cerrada"><span></span></button>
+      </div>
+      <p id="push-status" class="muted text-xs" role="status"></p>
 
+      <h3 class="settings-title">Tus dispositivos</h3>
       <div class="setting">
-        <p class="setting-label">Avisos con la app cerrada</p>
-        <label class="muted text-xs" for="push-url">Dirección de tu servidor de avisos</label>
-        <input id="push-url" class="field mt-1" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
-        <button id="push-toggle" class="btn-secondary mt-2 w-full py-3">Activar</button>
-        <p id="push-status" class="muted mt-1 text-xs" role="status"></p>
+        <label class="setting-label" for="server-url">Dirección de tu servidor</label>
+        <input id="server-url" class="field" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
+        <button id="server-connect" class="btn-secondary mt-2 w-full py-3">Conectar</button>
+        <p id="server-status" class="muted mt-1 text-xs" role="status"></p>
+      </div>
+      <div class="setting">
+        <p class="setting-label">Sincronizar con otro dispositivo</p>
+        <div id="sync-body"></div>
       </div>
 
       <p id="app-version" class="muted mt-6 text-center text-xs"></p>
@@ -193,7 +199,9 @@
     </div>
   </div>
 
+  <script src="vendor/qrcode.js"></script>
   <script src="reminders.js"></script>
+  <script src="sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
