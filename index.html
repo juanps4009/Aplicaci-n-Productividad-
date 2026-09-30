@@ -12,7 +12,13 @@
 <body>
   <header class="app-header">
     <h1 id="page-title" class="text-xl font-bold">Pendientes</h1>
-    <button id="open-settings" class="icon-btn" aria-label="Ajustes">⚙</button>
+    <div class="flex items-center">
+      <button id="open-filter" class="icon-btn" aria-label="Filtrar tareas">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+        <span id="filter-badge" class="badge hidden"></span>
+      </button>
+      <button id="open-settings" class="icon-btn" aria-label="Ajustes">⚙</button>
+    </div>
   </header>
 
   <main class="app-main">
@@ -29,12 +35,6 @@
           <input id="task-due" type="date" class="field due-field" aria-label="Fecha límite">
         </div>
       </form>
-
-      <div id="filters" class="mt-4 flex gap-2" role="tablist">
-        <button data-filter="all" class="filter-btn">Todas</button>
-        <button data-filter="pending" class="filter-btn">Pendientes</button>
-        <button data-filter="done" class="filter-btn">Completadas</button>
-      </div>
 
       <p id="task-counter" class="muted mt-3 text-sm"></p>
       <div id="task-groups" class="mt-2 space-y-5"></div>
@@ -91,6 +91,39 @@
       </div>
 
       <p id="app-version" class="muted mt-6 text-center text-xs"></p>
+    </div>
+  </div>
+
+  <!-- FILTRO -->
+  <div id="filter-sheet" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-label="Filtrar tareas">
+      <h2 class="text-lg font-bold">Mostrar</h2>
+      <div id="filters" class="menu-list mt-3">
+        <button data-filter="all">Todas</button>
+        <button data-filter="pending">Pendientes</button>
+        <button data-filter="done">Completadas</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MENÚ DE TAREA -->
+  <div id="task-menu" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-label="Opciones de la tarea">
+      <p id="task-menu-title" class="muted truncate text-sm"></p>
+      <div class="menu-list mt-3">
+        <button id="menu-edit">Editar</button>
+        <button id="menu-delete" class="danger">Eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTAS DE TAREA -->
+  <div id="notes-sheet" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-label="Notas de la tarea">
+      <p id="notes-title" class="text-lg font-bold"></p>
+      <label class="muted mt-3 block text-sm" for="notes-text">Detalles y notas</label>
+      <textarea id="notes-text" class="field mt-1" rows="9" placeholder="Escribe aquí los detalles, pasos o lo que necesites recordar…"></textarea>
+      <button id="notes-close" class="btn-primary mt-3 w-full py-3">Listo</button>
     </div>
   </div>
 
