@@ -340,3 +340,11 @@ select.field { appearance: auto; }
 .qr-box { display: grid; justify-items: center; gap: 0.4rem; padding: 0.75rem; background: var(--surface-2); border-radius: 0.8rem; }
 .qr-box svg { width: min(220px, 70vw); height: auto; background: #fff; padding: 6px; border-radius: 0.5rem; }
 .btn-danger-soft { background: var(--surface-2); color: var(--danger); border-radius: 0.85rem; font-weight: 600; min-height: 48px; }
+
+/* Tarea resaltada al llegar desde el widget */
+@keyframes task-flash {
+  0%, 55% { box-shadow: 0 0 0 3px var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--surface)); }
+  100% { box-shadow: 0 0 0 0 transparent; background: var(--surface); }
+}
+.task-item.flash { animation: task-flash 2.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .task-item.flash { animation: none; box-shadow: 0 0 0 3px var(--accent); } }

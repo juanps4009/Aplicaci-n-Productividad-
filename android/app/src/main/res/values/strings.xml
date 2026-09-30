@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pendientes (widget)</string>
+    <string name="widget_description">Tus tareas pendientes con su prioridad. Toca una para abrirla en la app.</string>
+    <string name="widget_title">Pendientes</string>
+    <string name="widget_empty_unconfigured">Toca aquí para conectar el widget con tu servidor</string>
+    <string name="widget_empty">No hay tareas pendientes (o no hay conexión todavía). Toca ↻ para actualizar.</string>
+</resources>

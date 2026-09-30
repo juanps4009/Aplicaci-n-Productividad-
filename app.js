@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.10.0-beta";
+const APP_VERSION = "0.11.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -989,6 +989,7 @@ async function syncNow() {
     save(KEYS.tomb, state.tombs);
     syncInfo = { kind: "ok", text: "", at: Date.now() };
     if (changed) {
+      if (pendingFocus && focusTask(pendingFocus)) pendingFocus = null;
       runReminders();
       if (state.editingTask === null) renderTasks();
       if (state.editing.size) renderBookList(); else renderBooks();
@@ -1007,6 +1008,39 @@ function commitTasksQuiet() {
   const now = Date.now();
   Sync.stampChanges("tasks", state.tasks, tracker, state.tombs, now);
   Sync.stampChanges("books", state.books, tracker, state.tombs, now);
+}
+
+/* Enlace directo a una tarea: #task=ID (lo usa el widget de Android) */
+let pendingFocus = null;
+
+function focusTask(id) {
+  const task = state.tasks.find((t) => t.id === id);
+  if (!task) return false;
+  if (state.openBook) closeBook();
+  if (state.notesTask) closeNotes();
+  showTab("tasks");
+  if (state.filter !== "all") { state.filter = "all"; save(KEYS.filter, state.filter); }
+  // abrir la sección plegada que contiene la tarea
+  const group = task.done ? "done" : buildGroups(state.tasks.filter((t) => !t.done)).find((g) => g.tasks.includes(task));
+  const key = task.done ? "done" : group && group.key;
+  if (key && state.collapsed[key]) { state.collapsed[key] = false; save(KEYS.collapsed, state.collapsed); }
+  renderTasks();
+  const el = document.querySelector(`li[data-id="${CSS.escape(id)}"]`);
+  if (el) {
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("flash");
+    setTimeout(() => el.classList.remove("flash"), 2400);
+  }
+  return true;
+}
+
+function handleTaskHash() {
+  if (!location.hash.startsWith("#task=")) return;
+  const id = decodeURIComponent(location.hash.slice(6)).trim();
+  history.replaceState(null, "", location.pathname + location.search);
+  if (!id || focusTask(id)) return;
+  pendingFocus = id; // quizá aún no llegó por sincronización
+  setTimeout(() => { pendingFocus = null; }, 15000);
 }
 
 /* Enlace de vinculación (el QR): https://…/#sync=CODIGO&server=URL */
@@ -1554,7 +1588,8 @@ save(KEYS.settings, state.settings);
 runReminders();
 schedulePushSync();
 handleLinkHash();
-window.addEventListener("hashchange", handleLinkHash);
+handleTaskHash();
+window.addEventListener("hashchange", () => { handleLinkHash(); handleTaskHash(); });
 scheduleSync(300);
 setInterval(() => { if (!document.hidden) scheduleSync(0); }, 60000);
 setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
