@@ -219,20 +219,27 @@ ul { margin: 0; padding: 0; list-style: none; }
 }
 .menu-list button.active { box-shadow: inset 0 0 0 2px var(--accent); font-weight: 600; }
 .menu-list button.danger { color: var(--danger); }
-#notes-text { min-height: 12rem; }
 
 /* Tarea: notas */
 .icon-btn.has-notes { color: var(--accent); }
 .note-preview { font-size: 0.8rem; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Resumen libre */
-.seg.small { margin-bottom: 0.25rem; }
+/* Documento libre (vista y editor comparten estilos) */
+.doc .blk { line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.6em; padding-block: 0.15rem; outline: none; }
+.doc .blk[data-type="h1"] { font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin-top: 1.25rem; scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 5rem); }
+.doc .blk[data-type="h2"] { font-size: 1.2rem; font-weight: 700; line-height: 1.3; margin-top: 0.75rem; }
+.doc .blk[data-type="ul"] { position: relative; padding-left: 1.4rem; }
+.doc .blk[data-type="ul"]::before { content: "•"; position: absolute; left: 0.35rem; color: var(--muted); }
+.doc .blk[data-type="quote"] { border-left: 3px solid var(--accent); padding-left: 0.85rem; color: var(--muted); font-style: italic; }
+.doc .blk:first-child { margin-top: 0; }
+.editor { outline: none; caret-color: var(--accent); min-height: 8rem; -webkit-user-select: text; user-select: text; }
+.editor.is-empty .blk:first-child::before { content: "Escribe “/” para elegir título, subtítulo, lista…"; color: var(--faint); pointer-events: none; font-style: normal; font-weight: 400; font-size: 1rem; }
+.editor-box { background: var(--bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.75rem 0.9rem; min-height: 14rem; }
+.editor-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* Vista del resumen libre con carril de puntos */
 .free-body { display: flex; gap: 0.75rem; padding: 0 0.75rem 1rem 1rem; }
-.free-content { flex: 1; min-width: 0; display: grid; gap: 0.6rem; align-content: start; }
-.entry-title { font-size: 1.3rem; font-weight: 800; line-height: 1.25; margin-top: 0.75rem; scroll-margin-top: calc(env(safe-area-inset-top, 0px) + 5rem); overflow-wrap: anywhere; }
-.free-content > :first-child { margin-top: 0; }
-.entry-subtitle { font-size: 1.05rem; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; scroll-margin-top: 5rem; }
-.entry-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+.free-body .doc { flex: 1; min-width: 0; }
 .dot-rail {
   position: sticky; top: calc(env(safe-area-inset-top, 0px) + 5rem); align-self: flex-start;
   display: flex; flex-direction: column; align-items: center; flex-shrink: 0;
@@ -241,10 +248,27 @@ ul { margin: 0; padding: 0; list-style: none; }
 .dot-rail button::after { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--faint); transition: transform 0.15s, background 0.15s; }
 .dot-rail button.active::after { background: var(--accent); transform: scale(1.5); }
 
-/* Edición libre */
-.entry-edit { display: grid; gap: 0.4rem; background: var(--surface-2); border-radius: 0.75rem; padding: 0.6rem; }
-.entry-edit .entry-bar { display: flex; align-items: center; gap: 0.25rem; }
-.entry-edit .entry-kind { flex: 1; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
-.entry-edit .icon-btn { min-width: 40px; min-height: 40px; }
-.add-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-.add-row button { flex: 1; white-space: nowrap; padding: 0 0.4rem; min-height: 44px; border-radius: 0.7rem; background: var(--surface-2); font-size: 0.9rem; font-weight: 600; }
+/* Menú "/" */
+.slash-menu {
+  position: fixed; z-index: 90; width: min(280px, calc(100vw - 24px)); padding: 0.35rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 0.9rem;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+.slash-item { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 48px; padding: 0.3rem 0.5rem; border-radius: 0.6rem; text-align: left; }
+.slash-item.active { background: var(--surface-2); }
+.slash-item b { display: block; font-weight: 600; font-size: 0.95rem; }
+.slash-item small { display: block; color: var(--muted); font-size: 0.75rem; }
+.slash-icon { width: 34px; height: 34px; border-radius: 0.5rem; background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+
+/* Página de notas de la tarea */
+.no-scroll { overflow: hidden; }
+.page { position: fixed; inset: 0; z-index: 60; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.page-bar {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 0.5rem; min-height: 56px;
+  padding: env(safe-area-inset-top, 0px) 0.75rem 0 0.5rem; background: var(--bg);
+}
+.page-body { max-width: 640px; margin: 0 auto; padding: 0.5rem 1.25rem calc(6rem + env(safe-area-inset-bottom, 0px)); }
+.page-title { font-size: 1.9rem; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.page-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0 1.25rem; }
+.chip { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--surface-2); color: var(--muted); border-radius: 9999px; padding: 0.25rem 0.7rem; font-size: 0.8rem; }
+.page .editor { min-height: 50vh; }

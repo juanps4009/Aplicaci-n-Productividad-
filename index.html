@@ -117,15 +117,21 @@
     </div>
   </div>
 
-  <!-- NOTAS DE TAREA -->
-  <div id="notes-sheet" class="sheet-backdrop hidden">
-    <div class="sheet" role="dialog" aria-label="Notas de la tarea">
-      <p id="notes-title" class="text-lg font-bold"></p>
-      <label class="muted mt-3 block text-sm" for="notes-text">Detalles y notas</label>
-      <textarea id="notes-text" class="field mt-1" rows="9" placeholder="Escribe aquí los detalles, pasos o lo que necesites recordar…"></textarea>
-      <button id="notes-close" class="btn-primary mt-3 w-full py-3">Listo</button>
+  <!-- PÁGINA DE NOTAS DE TAREA -->
+  <div id="notes-page" class="page hidden" role="dialog" aria-label="Notas de la tarea">
+    <div class="page-bar">
+      <button id="notes-back" class="icon-btn" aria-label="Volver a las tareas">←</button>
+      <span class="muted text-sm">Se guarda automáticamente</span>
+    </div>
+    <div class="page-body">
+      <h2 id="notes-title" class="page-title"></h2>
+      <div id="notes-meta" class="page-meta"></div>
+      <div id="notes-editor" class="editor doc" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Notas"></div>
     </div>
   </div>
+
+  <!-- MENÚ "/" DEL EDITOR -->
+  <div id="slash-menu" class="slash-menu hidden" role="listbox"></div>
 
   <!-- CONFIRMAR -->
   <div id="confirm" class="sheet-backdrop hidden">
