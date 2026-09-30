@@ -1,7 +1,10 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const KEYS = { tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab" };
+const KEYS = {
+  tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
+  settings: "prod.settings", collapsed: "prod.collapsed",
+};
 
 function load(key, fallback) {
   try {
@@ -14,11 +17,16 @@ function save(key, value) {
 }
 
 const state = {
-  tasks: load(KEYS.tasks, []),
+  // Migración: tareas de la v1 no tenían prioridad, fecha ni aviso
+  tasks: load(KEYS.tasks, []).map((t) => ({ priority: "medium", due: "", notified: false, ...t })),
   books: load(KEYS.books, []),
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
-  editing: new Set(), // ids de resúmenes en modo edición
+  settings: { priorityStyle: "dot", groupBy: "date", ...load(KEYS.settings, {}) },
+  collapsed: { done: true, ...load(KEYS.collapsed, {}) },
+  newPriority: "medium",
+  editing: new Set(),      // ids de resúmenes en edición
+  editingTask: null,       // id de tarea en edición
 };
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -46,23 +54,117 @@ function showTab(tab) {
 $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
 /* ---------- Pendientes ---------- */
+const PRIORITIES = [
+  { key: "high", label: "Alta" },
+  { key: "medium", label: "Media" },
+  { key: "low", label: "Baja" },
+];
+const PRIO_RANK = { high: 0, medium: 1, low: 2 };
+
+const pad = (n) => String(n).padStart(2, "0");
+function dateStr(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+const today = () => dateStr(new Date());
+
+function dueLabel(due) {
+  if (!due) return "";
+  const t = new Date(today() + "T00:00:00");
+  const diff = Math.round((new Date(due + "T00:00:00") - t) / 86400000);
+  if (diff === 0) return "Hoy";
+  if (diff === 1) return "Mañana";
+  if (diff === -1) return "Ayer";
+  return new Date(due + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short", year: diff < -300 || diff > 300 ? "numeric" : undefined });
+}
+
+function prioChipsHTML(selected, name) {
+  return PRIORITIES.map((p) => `
+    <button type="button" class="prio-chip ${p.key === selected ? "active" : ""}" data-prio="${p.key}"
+            role="radio" aria-checked="${p.key === selected}" ${name ? `data-for="${name}"` : ""}>
+      <span class="dot"></span>${p.label}
+    </button>`).join("");
+}
+
+function taskHTML(t) {
+  if (state.editingTask === t.id) {
+    return `
+    <li class="task-item editing" data-id="${t.id}" data-prio="${t.priority}">
+      <input class="field" data-edit="text" value="${esc(t.text)}" maxlength="200" aria-label="Texto de la tarea">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="prio-chips" role="radiogroup" data-edit="prio" data-value="${t.priority}">${prioChipsHTML(t.priority, "edit")}</div>
+        <input type="date" class="field due-field" data-edit="due" value="${esc(t.due)}" aria-label="Fecha límite">
+      </div>
+      <div class="flex gap-2">
+        <button data-action="cancel-task" class="btn-secondary flex-1">Cancelar</button>
+        <button data-action="save-task" class="btn-primary flex-1">Guardar</button>
+      </div>
+    </li>`;
+  }
+  const overdue = t.due && !t.done && t.due < today();
+  return `
+    <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
+      <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
+      <span class="dot" aria-label="Prioridad ${PRIORITIES.find((p) => p.key === t.priority)?.label ?? ""}"></span>
+      <div class="task-main">
+        <div class="task-text">${esc(t.text)}</div>
+        ${t.due ? `<div class="due-label ${overdue ? "overdue" : ""}">📅 ${dueLabel(t.due)}</div>` : ""}
+      </div>
+      <button class="icon-btn" data-action="edit-task" aria-label="Editar tarea">✎</button>
+      <button class="icon-btn danger" data-action="delete-task" aria-label="Eliminar tarea">✕</button>
+    </li>`;
+}
+
+function sortTasks(list) {
+  return [...list].sort((a, b) =>
+    (a.due || "9999") < (b.due || "9999") ? -1 : (a.due || "9999") > (b.due || "9999") ? 1
+      : PRIO_RANK[a.priority] - PRIO_RANK[b.priority]);
+}
+
+function buildGroups(active) {
+  const now = today();
+  if (state.settings.groupBy === "priority") {
+    return PRIORITIES.map((p) => ({ key: p.key, label: p.label, tasks: sortTasks(active.filter((t) => t.priority === p.key)) }));
+  }
+  return [
+    { key: "overdue", label: "Vencidas", cls: "overdue", tasks: sortTasks(active.filter((t) => t.due && t.due < now)) },
+    { key: "today", label: "Hoy", tasks: sortTasks(active.filter((t) => t.due === now)) },
+    { key: "upcoming", label: "Próximas", tasks: sortTasks(active.filter((t) => t.due > now)) },
+    { key: "nodate", label: "Sin fecha", tasks: sortTasks(active.filter((t) => !t.due)) },
+  ];
+}
+
+function groupHTML(g, forceOpen) {
+  const collapsed = !forceOpen && !!state.collapsed[g.key];
+  return `
+    <section class="group ${collapsed ? "collapsed" : ""}" data-group="${g.key}">
+      <button class="group-head ${g.cls || ""}" data-action="toggle-group" aria-expanded="${!collapsed}">
+        <span>${g.label}</span><span class="count">${g.tasks.length}</span><span class="chevron">▾</span>
+      </button>
+      ${collapsed ? "" : `<ul class="group-list">${g.tasks.map(taskHTML).join("")}</ul>${g.extra || ""}`}
+    </section>`;
+}
+
 function renderTasks() {
+  document.body.classList.toggle("style-border", state.settings.priorityStyle === "border");
   $$(".filter-btn").forEach((b) => b.classList.toggle("active", b.dataset.filter === state.filter));
 
-  const visible = state.tasks.filter((t) =>
-    state.filter === "all" ? true : state.filter === "done" ? t.done : !t.done);
+  const active = state.tasks.filter((t) => !t.done);
+  const done = state.tasks.filter((t) => t.done);
+  const groups = [];
 
-  $("#task-list").innerHTML = visible.map((t) => `
-    <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}">
-      <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
-      <span class="task-text">${esc(t.text)}</span>
-      <button class="icon-btn danger" data-action="delete" aria-label="Eliminar tarea">✕</button>
-    </li>`).join("");
+  if (state.filter !== "done") {
+    groups.push(...buildGroups(active).filter((g) => g.tasks.length));
+  }
+  if (state.filter !== "pending" && done.length) {
+    groups.push({
+      key: "done", label: "Completadas", cls: "", tasks: done,
+      extra: `<button class="clear-done" data-action="clear-done">Borrar completadas</button>`,
+    });
+  }
 
-  $("#task-empty").classList.toggle("hidden", visible.length > 0);
-  const left = state.tasks.filter((t) => !t.done).length;
+  $("#task-groups").innerHTML = groups.map((g) => groupHTML(g, g.key === "done" && state.filter === "done")).join("");
+  $("#task-empty").classList.toggle("hidden", groups.length > 0);
   $("#task-counter").textContent = state.tasks.length
-    ? `${left} pendiente${left === 1 ? "" : "s"} de ${state.tasks.length}` : "";
+    ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${state.tasks.length}` : "";
+  $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
 }
 
 function persistTasks() { save(KEYS.tasks, state.tasks); renderTasks(); }
@@ -72,9 +174,21 @@ $("#task-form").addEventListener("submit", (e) => {
   const input = $("#task-input");
   const text = input.value.trim();
   if (!text) return;
-  state.tasks.unshift({ id: uid(), text, done: false });
+  state.tasks.unshift({
+    id: uid(), text, done: false, priority: state.newPriority,
+    due: $("#task-due").value, notified: false,
+  });
   input.value = "";
+  $("#task-due").value = "";
   persistTasks();
+  checkDue();
+});
+
+$("#new-priority").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-prio]");
+  if (!chip) return;
+  state.newPriority = chip.dataset.prio;
+  $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
 });
 
 $("#filters").addEventListener("click", (e) => {
@@ -85,22 +199,121 @@ $("#filters").addEventListener("click", (e) => {
   renderTasks();
 });
 
-$("#task-list").addEventListener("click", (e) => {
-  const li = e.target.closest("li[data-id]");
-  if (!li) return;
-  if (e.target.closest("[data-action='delete']")) {
-    state.tasks = state.tasks.filter((t) => t.id !== li.dataset.id);
-    persistTasks();
+$("#task-groups").addEventListener("click", (e) => {
+  const chip = e.target.closest(".prio-chip[data-for='edit']");
+  if (chip) {
+    const box = chip.closest("[data-edit='prio']");
+    box.dataset.value = chip.dataset.prio;
+    box.innerHTML = prioChipsHTML(chip.dataset.prio, "edit");
+    return;
+  }
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const li = btn.closest("li[data-id]");
+  const task = li && state.tasks.find((t) => t.id === li.dataset.id);
+
+  switch (btn.dataset.action) {
+    case "toggle-group": {
+      const key = btn.closest("[data-group]").dataset.group;
+      state.collapsed[key] = !state.collapsed[key];
+      save(KEYS.collapsed, state.collapsed);
+      renderTasks();
+      break;
+    }
+    case "clear-done": {
+      const n = state.tasks.filter((t) => t.done).length;
+      if (confirm(`¿Borrar ${n} tarea${n === 1 ? "" : "s"} completada${n === 1 ? "" : "s"}?`)) {
+        state.tasks = state.tasks.filter((t) => !t.done);
+        persistTasks();
+      }
+      break;
+    }
+    case "delete-task":
+      if (task) { state.tasks = state.tasks.filter((t) => t !== task); persistTasks(); }
+      break;
+    case "edit-task":
+      if (task) { state.editingTask = task.id; renderTasks(); }
+      break;
+    case "cancel-task":
+      state.editingTask = null;
+      renderTasks();
+      break;
+    case "save-task": {
+      if (!task) break;
+      const text = li.querySelector("[data-edit='text']").value.trim();
+      if (!text) break;
+      const due = li.querySelector("[data-edit='due']").value;
+      if (due !== task.due) task.notified = false;
+      task.text = text;
+      task.due = due;
+      task.priority = li.querySelector("[data-edit='prio']").dataset.value;
+      state.editingTask = null;
+      persistTasks();
+      checkDue();
+      break;
+    }
   }
 });
 
-$("#task-list").addEventListener("change", (e) => {
+$("#task-groups").addEventListener("change", (e) => {
   const li = e.target.closest("li[data-id]");
   const task = li && state.tasks.find((t) => t.id === li.dataset.id);
-  if (!task) return;
+  if (!task || e.target.type !== "checkbox") return;
   task.done = e.target.checked;
   persistTasks();
 });
+
+/* ---------- Ajustes ---------- */
+function renderSettings() {
+  $$(".seg").forEach((seg) => {
+    const current = state.settings[seg.dataset.setting];
+    seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === current));
+  });
+  const btn = $("#enable-notif");
+  if (!("Notification" in window)) {
+    btn.textContent = "Notificaciones no disponibles"; btn.disabled = true;
+  } else if (Notification.permission === "granted") {
+    btn.textContent = "🔔 Notificaciones activadas"; btn.disabled = true;
+  } else if (Notification.permission === "denied") {
+    btn.textContent = "Bloqueadas en el navegador"; btn.disabled = true;
+  } else {
+    btn.textContent = "Activar notificaciones"; btn.disabled = false;
+  }
+}
+
+$("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
+$("#close-settings").addEventListener("click", () => $("#settings").classList.add("hidden"));
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") e.currentTarget.classList.add("hidden"); });
+
+$$(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-value]");
+  if (!b) return;
+  state.settings[seg.dataset.setting] = b.dataset.value;
+  save(KEYS.settings, state.settings);
+  renderSettings();
+  renderTasks();
+}));
+
+$("#enable-notif").addEventListener("click", async () => {
+  try { await Notification.requestPermission(); } catch { /* navegador sin soporte */ }
+  renderSettings();
+  checkDue();
+});
+
+/* ---------- Recordatorios ---------- */
+function checkDue() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const now = today();
+  const due = state.tasks.filter((t) => !t.done && t.due && t.due <= now && !t.notified);
+  if (!due.length) return;
+  due.forEach((t) => {
+    try {
+      new Notification(t.due < now ? "Tarea vencida" : "Tarea para hoy", { body: t.text, tag: t.id });
+    } catch { /* algunos móviles exigen service worker */ }
+    t.notified = true;
+  });
+  save(KEYS.tasks, state.tasks);
+}
 
 /* ---------- Resúmenes de libros ---------- */
 const SECTIONS = [
@@ -215,3 +428,6 @@ state.books = state.books.filter((b) => !b.isNew);
 showTab(state.tab);
 renderTasks();
 renderBooks();
+renderSettings();
+checkDue();
+setInterval(() => { checkDue(); if (state.editingTask === null) renderTasks(); }, 60000);
