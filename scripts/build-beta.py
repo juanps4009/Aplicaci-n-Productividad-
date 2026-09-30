@@ -11,9 +11,13 @@ version = re.search(r'APP_VERSION = "([^"]+)"', js).group(1)
 
 title = re.search(r"<title>.*?</title>", html, re.S).group(0)
 body = re.search(r"<body>(.*)</body>", html, re.S).group(1)
-body = body.replace('<script src="app.js"></script>', "")
+scripts = []
+for name in re.findall(r'<script src="([^"]+)"></script>', body):
+    scripts.append((root / name).read_text())
+    body = body.replace(f'<script src="{name}"></script>', "")
+code = "\n".join(scripts)
 
-out = f"{title}\n<style>\n{css}\n</style>\n{body}\n<script>\n{js}\n</script>\n"
+out = f"{title}\n<style>\n{css}\n</style>\n{body}\n<script>\n{code}\n</script>\n"
 dist = root / "dist"
 dist.mkdir(exist_ok=True)
 (dist / "beta.html").write_text(out)

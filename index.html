@@ -41,6 +41,7 @@
         </div>
       </form>
 
+      <div id="attention" class="attention hidden" aria-live="polite"></div>
       <p id="task-counter" class="muted mt-3 text-sm"></p>
       <div id="task-groups" class="mt-2 space-y-5"></div>
       <p id="task-empty" class="muted hidden py-10 text-center">No hay tareas para mostrar.</p>
@@ -74,6 +75,15 @@
       </div>
 
       <div class="setting">
+        <p class="setting-label">Tema</p>
+        <div class="seg" data-setting="theme">
+          <button data-value="auto">Automático</button>
+          <button data-value="light">Claro</button>
+          <button data-value="dark">Oscuro</button>
+        </div>
+      </div>
+
+      <div class="setting">
         <p class="setting-label">Estilo de prioridad</p>
         <div class="seg" data-setting="priorityStyle">
           <button data-value="dot">● Punto</button>
@@ -92,7 +102,7 @@
       <div class="setting">
         <p class="setting-label">Recordatorios</p>
         <button id="enable-notif" class="btn-secondary w-full py-3"></button>
-        <p class="muted mt-1 text-xs">Avisan de tareas con fecha de hoy o vencidas mientras la app esté abierta o instalada.</p>
+        <p class="muted mt-1 text-xs">Activa las notificaciones para los recordatorios de cada tarea (menú ⋮ de la tarea → Recordatorio).</p>
       </div>
 
       <p id="app-version" class="muted mt-6 text-center text-xs"></p>
@@ -111,12 +121,25 @@
     </div>
   </div>
 
+  <!-- RECORDATORIOS DE UNA TAREA -->
+  <div id="reminder-sheet" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-label="Recordatorios de la tarea">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">Recordatorios</h2>
+        <button id="rem-close" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <p id="rem-title" class="muted truncate text-sm"></p>
+      <div id="rem-body" class="mt-3"></div>
+    </div>
+  </div>
+
   <!-- MENÚ DE TAREA -->
   <div id="task-menu" class="sheet-backdrop hidden">
     <div class="sheet" role="dialog" aria-label="Opciones de la tarea">
       <p id="task-menu-title" class="muted truncate text-sm"></p>
       <div class="menu-list mt-3">
         <button id="menu-edit">Editar</button>
+        <button id="menu-remind">Recordatorio</button>
         <button id="menu-delete" class="danger">Eliminar</button>
       </div>
     </div>
@@ -162,6 +185,7 @@
     </div>
   </div>
 
+  <script src="reminders.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

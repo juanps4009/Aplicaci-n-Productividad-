@@ -292,3 +292,30 @@ ul { margin: 0; padding: 0; list-style: none; }
 .book-row-author { max-width: 40%; font-size: 0.75rem; color: var(--muted); text-align: right; overflow-wrap: anywhere; }
 .book-page-author { margin: 0.25rem 0 1.25rem; font-size: 0.95rem; }
 .page .free-body { padding: 0; }
+
+/* Hojas con mucho contenido */
+.sheet { max-height: 90vh; overflow-y: auto; }
+select.field { appearance: auto; }
+
+/* Recordatorios */
+.rem-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; margin-top: 0.4rem; background: var(--surface-2); border-radius: 0.8rem; }
+.rem-row > div:first-child { flex: 1; }
+.rem-row b, .att-row b { display: block; font-weight: 600; font-size: 0.92rem; overflow-wrap: anywhere; }
+.rem-row small, .att-row small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 2px; }
+.rem-form { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.rem-fields { display: grid; gap: 0.5rem; }
+.rem-error { color: var(--danger); font-size: 0.85rem; }
+.plan-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.plan-chip { min-height: 40px; padding: 0 0.85rem; border-radius: 9999px; background: var(--surface-2); color: var(--muted); font-size: 0.85rem; }
+.plan-chip.active { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.plan-chip:disabled { opacity: 0.45; }
+.day-chips { display: flex; gap: 0.35rem; }
+.day-chip { flex: 1; min-height: 44px; border-radius: 0.7rem; background: var(--surface-2); font-weight: 600; color: var(--muted); }
+.day-chip.active { background: var(--accent); color: var(--on-accent); }
+
+/* Avisos por atender */
+.attention { display: grid; gap: 0.6rem; margin-top: 1rem; }
+.att-row { background: var(--surface); border: 1px solid var(--accent); border-radius: 0.9rem; padding: 0.75rem; display: grid; gap: 0.6rem; }
+.att-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.att-actions button { flex: 1; min-height: 40px; padding: 0 0.6rem; border-radius: 9999px; background: var(--surface-2); font-size: 0.85rem; white-space: nowrap; }
+.att-actions button[data-action="att-ok"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }

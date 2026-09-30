@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.7.0-beta";
+const APP_VERSION = "0.8.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -20,7 +20,9 @@ function save(key, value) {
 
 const TYPE_FROM_ENTRY = { title: "h1", subtitle: "h2", text: "p" };
 const migrateTask = (t) => {
-  const task = { priority: "medium", due: "", notified: false, ...t };
+  const task = { priority: "medium", due: "", reminders: [], ...t };
+  if (!Array.isArray(task.reminders)) task.reminders = [];
+  delete task.notified;
   if (!task.doc) { // formato antiguo: texto plano → bloques de texto
     task.doc = (task.notes || "").split("\n").filter((l) => l.trim()).map((l) => ({ id: uid(), type: "p", text: l }));
   }
@@ -52,12 +54,14 @@ const state = {
   books: loadList(KEYS.books, migrateBook),
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
-  settings: { priorityStyle: "dot", groupBy: "date", ...load(KEYS.settings, {}) },
+  settings: { theme: "auto", priorityStyle: "dot", groupBy: "date", ...load(KEYS.settings, {}) },
   collapsed: { done: true, ...load(KEYS.collapsed, {}) },
   newPriority: "medium",
   editing: new Set(),      // ids de resúmenes en edición
   openBook: null,          // id del resumen abierto a página completa
   drafts: new Map(),       // copias de trabajo de los resúmenes en edición
+  remTask: null,           // tarea abierta en la hoja de recordatorios
+  remDraft: null,          // recordatorio que se está creando
   menuTask: null,          // tarea del menú ⋮
   notesTask: null,         // tarea abierta en notas
   editingTask: null,       // id de tarea en edición
@@ -72,6 +76,20 @@ function esc(str) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+
+/* ---------- Tema (automático / claro / oscuro) ---------- */
+const hostTheme = document.documentElement.dataset.theme || ""; // el visor de betas puede fijar uno
+function applyTheme() {
+  const root = document.documentElement;
+  const pref = state.settings.theme;
+  if (pref === "light" || pref === "dark") root.dataset.theme = pref;
+  else if (hostTheme) root.dataset.theme = hostTheme;
+  else delete root.dataset.theme;
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = dark ? "#1e293b" : "#ffffff";
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", applyTheme);
 
 /* ---------- Diálogo de confirmación propio (confirm() no funciona en todos los visores) ---------- */
 function askConfirm(message, okLabel = "Eliminar") {
@@ -152,13 +170,15 @@ function taskHTML(t) {
   }
   const overdue = t.due && !t.done && t.due < today();
   const hasNotes = (t.doc || []).some((b) => b.text.trim());
+  const next = t.done ? null : Reminders.nextFires(t, Date.now(), 60, 1)[0];
+  const meta = [t.due ? `📅 ${dueLabel(t.due)}` : "", next ? `🔔 ${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
       <span class="dot" aria-label="Prioridad ${PRIORITIES.find((p) => p.key === t.priority)?.label ?? ""}"></span>
       <div class="task-main">
         <div class="task-text">${esc(t.text)}</div>
-        ${t.due ? `<div class="due-label ${overdue ? "overdue" : ""}">📅 ${dueLabel(t.due)}</div>` : ""}
+        ${meta ? `<div class="due-label ${overdue ? "overdue" : ""}">${meta}</div>` : ""}
       </div>
       <button class="icon-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
       <button class="icon-btn" data-action="menu-task" aria-label="Más opciones" style="font-size:1.4rem;font-weight:700">⋮</button>
@@ -219,6 +239,7 @@ function renderTasks() {
   $("#task-counter").textContent = state.tasks.length
     ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${state.tasks.length}` : "";
   $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
+  renderAttention();
 }
 
 function persistTasks() { save(KEYS.tasks, state.tasks); renderTasks(); }
@@ -230,12 +251,12 @@ $("#task-form").addEventListener("submit", (e) => {
   if (!text) return;
   state.tasks.unshift({
     id: uid(), text, done: false, priority: state.newPriority,
-    due: $("#task-due").value, notified: false,
+    due: $("#task-due").value, reminders: [],
   });
   input.value = "";
   $("#task-due").value = "";
   persistTasks();
-  checkDue();
+  runReminders();
 });
 
 $("#new-priority").addEventListener("click", (e) => {
@@ -322,13 +343,12 @@ $("#task-groups").addEventListener("click", (e) => {
       const text = li.querySelector("[data-edit='text']").value.trim();
       if (!text) break;
       const due = li.querySelector("[data-edit='due']").value;
-      if (due !== task.due) task.notified = false;
-      task.text = text;
+          task.text = text;
       task.due = due;
       task.priority = li.querySelector("[data-edit='prio']").dataset.value;
       state.editingTask = null;
       persistTasks();
-      checkDue();
+      runReminders();
       break;
     }
   }
@@ -370,6 +390,7 @@ $$(".seg[data-setting]").forEach((seg) => seg.addEventListener("click", (e) => {
   if (!b) return;
   state.settings[seg.dataset.setting] = b.dataset.value;
   save(KEYS.settings, state.settings);
+  applyTheme();
   renderSettings();
   renderTasks();
 }));
@@ -377,23 +398,247 @@ $$(".seg[data-setting]").forEach((seg) => seg.addEventListener("click", (e) => {
 $("#enable-notif").addEventListener("click", async () => {
   try { await Notification.requestPermission(); } catch { /* navegador sin soporte */ }
   renderSettings();
-  checkDue();
+  runReminders();
 });
 
-/* ---------- Recordatorios ---------- */
-function checkDue() {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const now = today();
-  const due = state.tasks.filter((t) => !t.done && t.due && t.due <= now && !t.notified);
-  if (!due.length) return;
-  due.forEach((t) => {
-    try {
-      new Notification(t.due < now ? "Tarea vencida" : "Tarea para hoy", { body: t.text, tag: t.id });
-    } catch { /* algunos móviles exigen service worker */ }
-    t.notified = true;
-  });
-  save(KEYS.tasks, state.tasks);
+/* ---------- Recordatorios por tarea ---------- */
+const PLAN_KINDS = [
+  { kind: "once", label: "Fecha y hora" },
+  { kind: "before", label: "Antes del vencimiento" },
+  { kind: "daily", label: "Todos los días" },
+  { kind: "weekly", label: "Cada semana" },
+  { kind: "every", label: "Cada X horas" },
+];
+const WEEKDAY_CHIPS = [[1, "L"], [2, "M"], [3, "X"], [4, "J"], [5, "V"], [6, "S"], [0, "D"]];
+const pad2 = (n) => String(n).padStart(2, "0");
+const toInputValue = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const remTask = () => state.tasks.find((t) => t.id === state.remTask);
+const toMinutes = (hm) => { const [h, m] = (hm || "0:0").split(":").map(Number); return h * 60 + m; };
+
+function defaultDraft(task, kind) {
+  const d = { kind, time: "09:00", weekday: 1, days: 1, everyHours: 2, winFrom: "08:00", winTo: "20:00", error: "" };
+  if (kind === "once") { // por defecto: 2 días antes del vencimiento a las 3 pm, o mañana a las 9 am
+    let t = task.due ? Reminders.localMs(`${task.due}T15:00`) - 2 * Reminders.DAY : 0;
+    if (t <= Date.now()) { const x = new Date(Date.now() + Reminders.DAY); x.setHours(9, 0, 0, 0); t = x.getTime(); }
+    d.at = toInputValue(t);
+  }
+  return d;
 }
+
+function readDraftFields() {
+  const d = state.remDraft;
+  if (!d) return;
+  const val = (id) => document.querySelector(id)?.value;
+  if (val("#rem-at") !== undefined) d.at = val("#rem-at");
+  if (val("#rem-time") !== undefined) d.time = val("#rem-time");
+  if (val("#rem-days") !== undefined) d.days = Number(val("#rem-days"));
+  if (val("#rem-every") !== undefined) d.everyHours = Number(val("#rem-every"));
+  if (val("#rem-from") !== undefined) d.winFrom = val("#rem-from");
+  if (val("#rem-to") !== undefined) d.winTo = val("#rem-to");
+}
+
+function draftFormHTML(task, d) {
+  const chips = PLAN_KINDS.map((p) => {
+    const off = p.kind === "before" && !task.due;
+    return `<button type="button" class="plan-chip ${d.kind === p.kind ? "active" : ""}" data-action="rem-kind" data-kind="${p.kind}" ${off ? 'disabled title="La tarea no tiene fecha límite"' : ""}>${p.label}</button>`;
+  }).join("");
+  const timeField = `<label class="setting-label" for="rem-time">Hora</label><input id="rem-time" type="time" class="field" value="${d.time}">`;
+  let fields = "";
+  if (d.kind === "once") fields = `<label class="setting-label" for="rem-at">Cuándo</label><input id="rem-at" type="datetime-local" class="field" value="${d.at}">`;
+  if (d.kind === "before") fields = `
+    <label class="setting-label" for="rem-days">Avisar</label>
+    <select id="rem-days" class="field">${[0, 1, 2, 3, 7].map((n) => `<option value="${n}" ${d.days === n ? "selected" : ""}>${n === 0 ? "El mismo día del vencimiento" : `${n} día${n === 1 ? "" : "s"} antes`}</option>`).join("")}</select>${timeField}`;
+  if (d.kind === "daily") fields = timeField;
+  if (d.kind === "weekly") fields = `
+    <p class="setting-label">Día de la semana</p>
+    <div class="day-chips">${WEEKDAY_CHIPS.map(([n, l]) => `<button type="button" class="day-chip ${d.weekday === n ? "active" : ""}" data-action="rem-day" data-day="${n}" aria-label="${Reminders.DAYS_ES[n]}">${l}</button>`).join("")}</div>${timeField}`;
+  if (d.kind === "every") fields = `
+    <label class="setting-label" for="rem-every">Repetir</label>
+    <select id="rem-every" class="field">${[1, 2, 3, 4, 6, 8].map((n) => `<option value="${n}" ${d.everyHours === n ? "selected" : ""}>Cada ${n} hora${n === 1 ? "" : "s"}</option>`).join("")}</select>
+    <div class="flex gap-2">
+      <div class="flex-1"><label class="setting-label" for="rem-from">Desde</label><input id="rem-from" type="time" class="field" value="${d.winFrom}"></div>
+      <div class="flex-1"><label class="setting-label" for="rem-to">Hasta</label><input id="rem-to" type="time" class="field" value="${d.winTo}"></div>
+    </div>
+    <p class="muted text-xs">Se repite dentro de ese horario hasta que completes la tarea.</p>`;
+  return `
+    <div class="rem-form">
+      <div class="plan-chips">${chips}</div>
+      <div class="rem-fields">${fields}</div>
+      ${d.error ? `<p class="rem-error" role="alert">${esc(d.error)}</p>` : ""}
+      <div class="flex gap-2">
+        <button data-action="rem-cancel" class="btn-secondary flex-1 py-3">Cancelar</button>
+        <button data-action="rem-save" class="btn-primary flex-1 py-3">Guardar</button>
+      </div>
+    </div>`;
+}
+
+function permissionNote() {
+  if (!("Notification" in window)) return `<p class="muted mt-3 text-xs">Este navegador no permite notificaciones; verás los avisos dentro de la app.</p>`;
+  if (Notification.permission === "denied") return `<p class="rem-error mt-3 text-xs">Las notificaciones están bloqueadas. Actívalas en los ajustes del navegador o de la app instalada para recibir avisos.</p>`;
+  if (Notification.permission === "default") return `<p class="muted mt-3 text-xs">Al guardar te pediremos permiso para enviar notificaciones.</p>`;
+  return "";
+}
+
+function renderReminderSheet() {
+  const task = remTask();
+  if (!task) return;
+  $("#rem-title").textContent = task.text;
+  const rows = task.reminders.map((rem) => {
+    const nx = Reminders.nextFires({ ...task, done: false, reminders: [rem] }, Date.now(), 60, 1)[0];
+    return `
+      <div class="rem-row">
+        <div class="min-w-0"><b>${esc(Reminders.describe(rem))}</b><small>${nx ? `Próximo: ${Reminders.fmtStamp(nx.ms)}` : "Sin próximos avisos"}</small></div>
+        <button class="icon-btn danger" data-action="rem-del" data-id="${rem.id}" aria-label="Quitar recordatorio">✕</button>
+      </div>`;
+  }).join("");
+  const d = state.remDraft;
+  $("#rem-body").innerHTML =
+    (rows || `<p class="muted text-sm">Esta tarea aún no tiene recordatorios.</p>`) +
+    (d ? draftFormHTML(task, d) : `<button class="btn-secondary mt-3 w-full py-3" data-action="rem-add">+ Añadir recordatorio</button>`) +
+    permissionNote();
+}
+
+function closeReminders() {
+  state.remDraft = null;
+  state.remTask = null;
+  closeSheet("#reminder-sheet");
+}
+
+async function saveDraft() {
+  readDraftFields();
+  const d = state.remDraft, task = remTask();
+  if (!d || !task) return;
+  const fail = (msg) => { d.error = msg; renderReminderSheet(); };
+  const rem = { id: uid(), kind: d.kind, created: Date.now() };
+  if (d.kind !== "once" && d.kind !== "every" && !d.time) return fail("Elige una hora.");
+  if (d.kind === "once") {
+    if (!d.at) return fail("Elige fecha y hora.");
+    if (Reminders.localMs(d.at) <= Date.now()) return fail("Esa fecha y hora ya pasó. Elige una futura.");
+    rem.at = d.at;
+  } else if (d.kind === "before") {
+    Object.assign(rem, { days: d.days, time: d.time });
+    if (!Reminders.occurrences(rem, task, Date.now(), Date.now() + 400 * Reminders.DAY).length) {
+      return fail("Ese aviso ya quedó en el pasado. Prueba con menos días de anticipación.");
+    }
+  } else if (d.kind === "daily") rem.time = d.time;
+  else if (d.kind === "weekly") Object.assign(rem, { weekday: d.weekday, time: d.time });
+  else if (d.kind === "every") {
+    if (!d.winFrom || !d.winTo || toMinutes(d.winFrom) >= toMinutes(d.winTo)) return fail("La hora final debe ser después de la inicial.");
+    Object.assign(rem, { everyHours: d.everyHours, winFrom: d.winFrom, winTo: d.winTo });
+  }
+  // el permiso se pide dentro del toque del usuario
+  if ("Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch { /* sin soporte */ }
+  }
+  task.reminders.push(rem);
+  state.remDraft = null;
+  persistTasks();
+  renderReminderSheet();
+  renderSettings();
+  runReminders();
+}
+
+$("#menu-remind").addEventListener("click", () => {
+  state.remTask = state.menuTask;
+  state.remDraft = null;
+  closeSheet("#task-menu");
+  renderReminderSheet();
+  openSheet("#reminder-sheet");
+});
+$("#rem-close").addEventListener("click", closeReminders);
+$("#reminder-sheet").addEventListener("click", (e) => {
+  if (e.target.id === "reminder-sheet") return closeReminders();
+  const btn = e.target.closest("[data-action]");
+  const task = remTask();
+  if (!btn || !task) return;
+  switch (btn.dataset.action) {
+    case "rem-add": state.remDraft = defaultDraft(task, "once"); renderReminderSheet(); break;
+    case "rem-kind":
+      if (state.remDraft.kind !== btn.dataset.kind) state.remDraft = defaultDraft(task, btn.dataset.kind);
+      renderReminderSheet();
+      break;
+    case "rem-day": readDraftFields(); state.remDraft.weekday = Number(btn.dataset.day); renderReminderSheet(); break;
+    case "rem-cancel": state.remDraft = null; renderReminderSheet(); break;
+    case "rem-save": saveDraft(); break;
+    case "rem-del":
+      task.reminders = task.reminders.filter((r) => r.id !== btn.dataset.id);
+      persistTasks();
+      renderReminderSheet();
+      break;
+  }
+});
+
+/* Avisos por atender: recordatorios que ya sonaron (o se perdieron con la app cerrada), una fila por tarea */
+const pendingOf = (task) => task.reminders.filter((r) => r.lastFired && !r.acked);
+
+function renderAttention() {
+  const items = state.tasks
+    .filter((t) => !t.done && pendingOf(t).length)
+    .map((task) => ({ task, last: Math.max(...pendingOf(task).map((r) => r.lastFired)) }))
+    .sort((a, b) => b.last - a.last);
+  const box = $("#attention");
+  box.classList.toggle("hidden", !items.length);
+  box.innerHTML = items.map(({ task, last }) => `
+    <div class="att-row" data-task="${task.id}">
+      <div class="min-w-0"><b>🔔 ${esc(task.text)}</b><small>Sonó ${Reminders.fmtStamp(last)}</small></div>
+      <div class="att-actions">
+        <button data-action="att-snooze" data-min="10">10 min</button>
+        <button data-action="att-snooze" data-min="60">1 h</button>
+        <button data-action="att-tomorrow">Mañana</button>
+        <button data-action="att-ok">Listo</button>
+      </div>
+    </div>`).join("");
+}
+
+function acknowledge(task) {
+  const pending = pendingOf(task);
+  task.reminders = task.reminders.filter((r) => !(pending.includes(r) && r.kind === "once"));
+  pending.forEach((r) => { r.acked = true; });
+}
+
+$("#attention").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  const row = btn && btn.closest("[data-task]");
+  const task = row && state.tasks.find((t) => t.id === row.dataset.task);
+  if (!task) return;
+  const action = btn.dataset.action;
+  acknowledge(task);
+  if (action === "att-snooze" || action === "att-tomorrow") {
+    let at;
+    if (action === "att-tomorrow") { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); at = d.getTime(); }
+    else at = Math.ceil((Date.now() + Number(btn.dataset.min) * 60000) / 60000) * 60000;
+    task.reminders.push({ id: uid(), kind: "once", atMs: at, created: Date.now(), auto: true });
+  }
+  persistTasks();
+});
+
+/* Planificador local: dispara lo que ya tocaba (la app abierta, en segundo plano reciente o al abrirla) */
+async function showNotice(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const opts = { body, tag, icon: "icons/icon-192.png", badge: "icons/icon-192.png" };
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) return await reg.showNotification(title, opts);
+  } catch { /* sin service worker: usar la API directa */ }
+  try { new Notification(title, opts); } catch { /* algunos móviles exigen service worker */ }
+}
+
+function runReminders() {
+  const now = Date.now();
+  let changed = false;
+  state.tasks.forEach((task) => {
+    Reminders.dueFires(task, now).forEach(({ rem, ms }) => {
+      rem.lastFired = ms;
+      rem.acked = false;
+      changed = true;
+      if (now - ms <= 3 * 60000) { // si se perdió hace rato, solo queda en "avisos por atender"
+        showNotice(task.text, task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", `r-${rem.id}-${ms}`);
+      }
+    });
+  });
+  if (changed) { save(KEYS.tasks, state.tasks); renderTasks(); }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) runReminders(); });
 
 /* ---------- Editor libre (estilo Notion) ---------- */
 /* Un documento es una lista de bloques {id, type, text}. Lo que es título, subtítulo, lista o cita
@@ -903,9 +1148,10 @@ if (!TITLES[state.tab]) state.tab = "tasks";
 if (!["all", "pending", "done"].includes(state.filter)) state.filter = "all";
 // Un borrador nuevo sin guardar no sobrevive a una recarga
 state.books = state.books.filter((b) => !b.isNew);
+applyTheme();
 showTab(state.tab);
 renderTasks();
 renderBooks();
 renderSettings();
-checkDue();
-setInterval(() => { checkDue(); if (state.editingTask === null) renderTasks(); }, 60000);
+runReminders();
+setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
