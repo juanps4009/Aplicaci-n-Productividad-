@@ -1,17 +1,25 @@
-# Tu servidor (avisos con la app cerrada + sincronizar celular y computador)
+# Servidor de la app (lo crea el dueño UNA sola vez; las demás personas no hacen nada)
 
-Un "servidor" es solo una cajita gratuita en internet. Esta hace dos cosas:
+Un "servidor" es una cajita gratuita en internet. Este se encarga de:
 
-1. **Avisos con la app cerrada:** el recordatorio llega a la hora exacta aunque la app esté cerrada.
-2. **Sincronizar dispositivos:** las tareas y resúmenes de tu celular y de tu computador son los mismos. Cada dispositivo sube sus cambios y baja los del otro.
+1. **Sincronizar** las tareas y resúmenes entre los dispositivos de una persona (celular, computador y widget).
+2. **Avisos con la app cerrada**: entrega los recordatorios a la hora exacta.
 
-Es gratis (plan gratuito de Cloudflare) y es tuyo: nadie más lo usa. Sin él, la app sigue funcionando, pero cada dispositivo guarda sus propios datos.
+**Quien publica la app crea este servidor una vez y pega su dirección en `config.js`.** Desde ese momento cualquier persona que abra la app sincroniza con un botón («Crear código nuevo») sin crear nada. Quien quiera, puede usar su propio servidor en Ajustes → *Servidor propio (avanzado)*.
 
-> Si ya habías pegado una versión anterior de `index.js`, **vuelve a pegar el archivo completo y pulsa Deploy**: esta versión añade la sincronización. La base de datos no cambia; las tablas nuevas se crean solas.
+## Privacidad (para el dueño y para los usuarios)
 
-Lo que hace: la app le envía al servidor el texto y la hora de tus próximos recordatorios (14 días). Cada minuto el servidor revisa cuáles ya tocan y los manda como notificación al celular. Al completar o borrar una tarea, sus avisos se cancelan solos.
+- Las tareas y resúmenes se **cifran en el dispositivo** (AES-256-GCM con una clave derivada del código de cada persona). El servidor solo guarda datos ilegibles: **no puedes leer lo de nadie**.
+- Los avisos también viajan cifrados con una clave que solo tiene cada dispositivo.
+- El servidor no guarda el código, solo una huella (SHA-256) que no permite recuperarlo. Quien pierda su código en todos sus dispositivos no puede recuperar lo sincronizado.
+- Cada persona puede borrar sus datos del servidor desde Ajustes. La página `privacidad.html` lo explica a los usuarios.
 
-## Pasos (unos 10 minutos, desde el navegador)
+## Límites que protegen tu cuota gratuita
+
+Por cada código: máximo 3000 registros y ~3 MB. Por dirección IP: 120 peticiones por minuto; por código: 40 por minuto. Tope global de 20 000 códigos y 20 000 dispositivos con avisos. Si se alcanza algún límite, la app sigue funcionando en el dispositivo y muestra un aviso en lugar de fallar.
+El plan gratuito de Cloudflare (revisa las cifras vigentes en su sitio) alcanza para muchos usuarios con uso normal, porque la app solo consulta mientras está a la vista. Si algún día el servicio se llena, Cloudflare ofrece un plan de pago económico.
+
+## Pasos para crear el servidor (unos 10 minutos, desde el navegador)
 
 Los nombres de los menús de Cloudflare cambian de vez en cuando; si algo no coincide, busca la opción con un nombre parecido.
 
@@ -23,6 +31,12 @@ Los nombres de los menús de Cloudflare cambian de vez en cuando; si algo no coi
 6. **Programar cada minuto.** Worker → *Settings* → *Triggers* (o *Trigger Events*) → **Add Cron Trigger** → escribe `* * * * *` y guarda.
 7. **Comprobar.** Abre la dirección de tu Worker (termina en `.workers.dev`). Debe decir **«Servidor de avisos funcionando ✓»**.
 8. *(Opcional, recomendado)* Worker → *Settings* → *Variables and Secrets* → **Add** → nombre `VAPID_SUBJECT`, valor `mailto:tu-correo@ejemplo.com`.
+
+## Ponerlo en la app para todos (dueño)
+
+1. Abre `config.js` en tu repositorio y pega la dirección de tu Worker en `server`, por ejemplo `server: "https://avisos-productividad.TU-USUARIO.workers.dev"`.
+2. Guarda el cambio (commit). GitHub Pages lo publica en uno o dos minutos.
+3. Listo: la app ya sincroniza con ese servidor de fábrica.
 
 ## En la app (avisos con la app cerrada)
 

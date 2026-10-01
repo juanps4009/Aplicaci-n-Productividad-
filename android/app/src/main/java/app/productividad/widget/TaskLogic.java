@@ -115,6 +115,7 @@ final class TaskLogic {
     /** Descarga lo nuevo desde el servidor y lo aplica a la caché (gana el cambio más reciente). */
     static void sync(String server, String code, Cache cache, Transport net) throws Exception {
         String space = spaceId(code);
+        byte[] key = TaskCrypto.deriveKey(code);
         String url = server.replaceAll("/+$", "") + "/space/sync";
         long since = cache.seq;
         boolean more;
@@ -135,7 +136,9 @@ final class TaskLogic {
                 if (r.optInt("deleted") == 1) {
                     cache.tasks.remove(id);
                 } else {
-                    cache.tasks.put(id, toTask(id, new JSONObject(r.getString("data")), updatedAt));
+                    String plain = TaskCrypto.decrypt(key, r.getString("data"), id + "|tasks");
+                    if (plain == null) continue; // cifrado con otro código o alterado: se ignora
+                    cache.tasks.put(id, toTask(id, new JSONObject(plain), updatedAt));
                 }
             }
             since = res.getLong("seq");

@@ -109,16 +109,23 @@
 
       <h3 class="settings-title">Tus dispositivos</h3>
       <div class="setting">
+        <p class="setting-label">Sincronizar con otro dispositivo</p>
+        <p class="muted text-xs">Usa el mismo código en tu celular y tu computador. Tus datos se cifran en tu dispositivo: nadie más puede leerlos.</p>
+        <div id="sync-body"></div>
+      </div>
+      <details id="server-adv" class="setting adv">
+        <summary>Servidor propio (avanzado)</summary>
         <label class="setting-label" for="server-url">Dirección de tu servidor</label>
         <input id="server-url" class="field" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
         <button id="server-connect" class="btn-secondary mt-2 w-full py-3">Conectar</button>
+        <button id="server-reset" class="btn-secondary mt-2 w-full py-3 hidden">Volver al servidor de la app</button>
         <p id="server-status" class="muted mt-1 text-xs" role="status"></p>
-      </div>
-      <div class="setting">
-        <p class="setting-label">Sincronizar con otro dispositivo</p>
-        <div id="sync-body"></div>
-      </div>
+      </details>
 
+      <h3 class="settings-title">Widget de Android</h3>
+      <div class="setting" id="widget-block"></div>
+
+      <p class="muted mt-6 text-center text-xs"><a href="privacidad.html" target="_blank" rel="noopener">Privacidad</a></p>
       <p id="app-version" class="muted mt-6 text-center text-xs"></p>
     </div>
   </div>
@@ -200,6 +207,7 @@
   </div>
 
   <script src="vendor/qrcode.js"></script>
+  <script src="config.js"></script>
   <script src="reminders.js"></script>
   <script src="sync.js"></script>
   <script src="app.js"></script>

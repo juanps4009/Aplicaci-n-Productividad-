@@ -348,3 +348,8 @@ select.field { appearance: auto; }
 }
 .task-item.flash { animation: task-flash 2.4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .task-item.flash { animation: none; box-shadow: 0 0 0 3px var(--accent); } }
+
+.link-btn { margin-top: 0.25rem; padding: 0.6rem 0; color: var(--muted); font-size: 0.8rem; text-decoration: underline; text-align: center; min-height: 44px; }
+.adv summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; color: var(--muted); min-height: 44px; display: flex; align-items: center; }
+.adv[open] summary { margin-bottom: 0.5rem; }
+a.btn-primary { display: block; }

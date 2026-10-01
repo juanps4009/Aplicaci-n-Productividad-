@@ -106,7 +106,41 @@
 
   const purgeTombs = (tombs, now, days) => tombs.filter((t) => now - t.updatedAt < (days || 60) * 86400000);
 
-  const api = { makeCode, normalizeCode, isValidCode, formatCode, spaceId, newTracker, prime, stampChanges, collectPush, mergeIncoming, purgeTombs };
+  /* ---------- Cifrado de extremo a extremo ----------
+     Clave AES-256-GCM = HKDF-SHA256(código normalizado, sal "pendientes-sync-v2", info "enc-aes-256-gcm").
+     El servidor solo ve el "espacio" (hash del código); no puede derivar la clave.
+     Cada registro: "e1:" + base64url(iv[12] + cifrado), con id|col como datos autenticados. */
+  const te = new TextEncoder(), td = new TextDecoder();
+  const b64u = {
+    enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+    dec: (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0)),
+  };
+
+  async function deriveKey(code) {
+    const ikm = await crypto.subtle.importKey("raw", te.encode(normalizeCode(code)), "HKDF", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: te.encode("pendientes-sync-v2"), info: te.encode("enc-aes-256-gcm") },
+      ikm, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  }
+  const importRawKey = (raw) => crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+
+  async function encryptText(key, text, aad) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: te.encode(aad) }, key, te.encode(text)));
+    const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12);
+    return "e1:" + b64u.enc(out);
+  }
+  /* Devuelve el texto, o null si no se puede descifrar (clave distinta o dato alterado). Datos sin "e1:" se tratan como texto plano antiguo. */
+  async function decryptText(key, data, aad) {
+    if (typeof data !== "string" || !data.startsWith("e1:")) return data;
+    try {
+      const raw = b64u.dec(data.slice(3));
+      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12), additionalData: te.encode(aad) }, key, raw.slice(12));
+      return td.decode(pt);
+    } catch { return null; }
+  }
+
+  const api = { deriveKey, importRawKey, encryptText, decryptText, b64u, makeCode, normalizeCode, isValidCode, formatCode, spaceId, newTracker, prime, stampChanges, collectPush, mergeIncoming, purgeTombs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Sync = api;
 })(typeof self !== "undefined" ? self : this);

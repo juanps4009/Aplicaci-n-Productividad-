@@ -3,6 +3,7 @@ package app.productividad.widget;
 import android.app.Activity;
 import android.appwidget.AppWidgetManager;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
@@ -14,11 +15,35 @@ public class ConfigActivity extends Activity {
 
     private int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
 
+    /** Guarda servidor, código y dirección de la app que vienen en el enlace. Devuelve false si faltan o son inválidos. */
+    private boolean applyLink(Uri link) {
+        String server = String.valueOf(link.getQueryParameter("server")).trim().replaceAll("/+$", "");
+        String code = TaskLogic.normalizeCode(link.getQueryParameter("code"));
+        String app = String.valueOf(link.getQueryParameter("app")).trim();
+        if (!server.startsWith("https://") || !TaskLogic.isValidCode(code)) return false;
+        if (!app.startsWith("https://")) app = TaskRepo.DEFAULT_APP_URL;
+        TaskRepo.save(this, server, code, app);
+        TaskWidgetProvider.refreshAll(this);
+        return true;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         // Si se abre al añadir el widget y el usuario sale sin guardar, el widget no se añade
         setResult(RESULT_CANCELED);
+        // Abierto desde el botón de la app web: guardar los datos recibidos y terminar
+        Uri link = getIntent() == null ? null : getIntent().getData();
+        if (link != null && "pendientes".equals(link.getScheme())) {
+            if (applyLink(link)) {
+                Toast.makeText(this, "Widget conectado ✓ Ahora mantén pulsada tu pantalla de inicio → Widgets → Pendientes.", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "El enlace no es válido. Vuelve a tocar «Conectar el widget» en la app.", Toast.LENGTH_LONG).show();
+            }
+            finish();
+            return;
+        }
+
         setContentView(R.layout.activity_config);
 
         Intent intent = getIntent();

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Privacidad · Pendientes y Resúmenes</title>
+  <style>
+    :root { --bg: #f8fafc; --text: #1e293b; --muted: #64748b; --accent: #4f46e5; --card: #ffffff; --border: #e2e8f0; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --text: #e2e8f0; --muted: #94a3b8; --accent: #818cf8; --card: #1e293b; --border: #334155; } }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 42rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+    h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+    h2 { font-size: 1.1rem; margin: 2rem 0 0.5rem; }
+    p, li { color: var(--text); }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    ul { padding-left: 1.2rem; }
+    li { margin: 0.3rem 0; }
+    a { color: var(--accent); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 0.8rem; padding: 0.75rem 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Privacidad</h1>
+  <p class="muted">Pendientes y Resúmenes · explicado en pocas palabras</p>
+
+  <div class="card"><p><strong>Resumen:</strong> tus tareas y resúmenes viven en tu dispositivo. Si activas la sincronización, se suben <strong>cifrados</strong> con tu código y nadie, ni el dueño del servicio, puede leerlos. No hay cuentas, anuncios ni estadísticas de uso.</p></div>
+
+  <h2>Qué se guarda y dónde</h2>
+  <ul>
+    <li><strong>En tu dispositivo:</strong> tareas, notas, resúmenes y ajustes (en el almacenamiento del navegador o de la app instalada).</li>
+    <li><strong>Si activas la sincronización:</strong> el servidor guarda tus tareas y resúmenes ya cifrados en tu dispositivo con una clave que sale de tu código. El servidor solo ve datos ilegibles, un identificador interno de cada registro, la fecha del último cambio y cuánto ocupa. No ve títulos, textos, fechas límite ni notas.</li>
+    <li><strong>Si activas los avisos con la app cerrada:</strong> el servidor guarda la hora de cada aviso y un texto cifrado con una clave que solo tiene tu dispositivo, y la dirección de notificaciones que te da tu navegador. Lo borra al enviar el aviso.</li>
+    <li><strong>Widget de Android:</strong> lee tus tareas del servidor con tu código y las muestra en tu pantalla. Guarda una copia en tu celular.</li>
+  </ul>
+
+  <h2>Tu código</h2>
+  <ul>
+    <li>Tu código es la llave: quien lo tenga puede leer y cambiar tus datos. No lo compartas.</li>
+    <li>El servidor <strong>no guarda</strong> tu código, solo una huella que no permite recuperarlo.</li>
+    <li>Si lo pierdes en todos tus dispositivos, <strong>no hay forma de recuperar</strong> los datos sincronizados.</li>
+  </ul>
+
+  <h2>Cómo borrar tus datos</h2>
+  <ul>
+    <li>En Ajustes → Tus dispositivos → <strong>«Borrar mis datos del servidor»</strong> se eliminan todos tus registros sincronizados.</li>
+    <li><strong>«Desvincular»</strong> deja de sincronizar este dispositivo; sus datos locales se quedan.</li>
+    <li>Los datos locales se borran al limpiar los datos del navegador o desinstalar la app.</li>
+  </ul>
+
+  <h2>Terceros</h2>
+  <ul>
+    <li>La app se aloja en GitHub Pages y el servidor de sincronización corre en Cloudflare. Como cualquier sitio web, ellos ven la dirección IP de quien se conecta.</li>
+    <li>Para evitar abusos, el servidor limita cuántas peticiones por minuto puede hacer cada dirección IP. No guarda ese dato.</li>
+  </ul>
+
+  <h2>Servicio gratuito</h2>
+  <p>Este servicio se ofrece gratis y sin garantías. Puede pausarse si se agota su cuota gratuita; en ese caso la app sigue funcionando en tu dispositivo con tus datos locales. Te recomiendo no guardar información muy sensible.</p>
+
+  <p class="muted"><a href="./">← Volver a la app</a></p>
+</main>
+</body>
+</html>

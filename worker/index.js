@@ -7,6 +7,24 @@ const DAY = 86400000;
 const PUSH_HOSTS = [/(^|\.)googleapis\.com$/, /(^|\.)mozilla\.com$/, /(^|\.)push\.apple\.com$/, /(^|\.)windows\.com$/, /(^|\.)mozaws\.net$/];
 const enc = new TextEncoder();
 
+/* Límites para que un servicio abierto y gratuito no se agote (por código / dispositivo / IP) */
+const LIMITS = {
+  recordChars: 200000,        // tamaño máximo de un registro cifrado
+  recordsPerSpace: 3000,      // tareas + resúmenes por código
+  bytesPerSpace: 3000000,     // ~3 MB por código
+  maxSpaces: 20000,           // códigos en total
+  maxDevices: 20000,          // dispositivos con avisos en total
+  ipPerMinute: 120,           // peticiones por minuto por IP (varias personas pueden compartir red)
+  spacePerMinute: 40,         // peticiones por minuto por código (en cada isolate del Worker)
+};
+const hits = new Map();
+function tooMany(key, max) {
+  const minute = Math.floor(Date.now() / 60000);
+  const h = hits.get(key);
+  if (!h || h.minute !== minute) { hits.set(key, { minute, n: 1 }); if (hits.size > 5000) hits.clear(); return false; }
+  return ++h.n > max;
+}
+
 /* ---------- utilidades ---------- */
 const b64u = {
   enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
@@ -149,11 +167,16 @@ async function handleSync(request, env) {
   const rows = [];
   for (const it of items) {
     if (!str(it.id, 80) || !Number.isFinite(it.fireAt) || it.fireAt < now - 5 * 60000 || it.fireAt > now + 31 * DAY ||
-        !str(it.title, 200) || !str(it.body, 200) || !str(it.tag, 120)) return json({ error: "item inválido" }, 400);
+        !str(it.title, 800) || !str(it.body, 800) || !str(it.tag, 120)) return json({ error: "item inválido" }, 400);
     rows.push(it);
   }
   const db = env.DB;
   await ensureSchema(db);
+  const known = await db.prepare("SELECT 1 AS x FROM devices WHERE id = ?1").bind(device).first();
+  if (!known) {
+    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM devices").first();
+    if (n >= LIMITS.maxDevices) return json({ error: "servicio lleno" }, 503);
+  }
   await db.batch([
     db.prepare("INSERT INTO devices (id, subscription, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET subscription = ?2, updated_at = ?3").bind(device, JSON.stringify(subscription), now),
     db.prepare("DELETE FROM reminders WHERE device = ?1").bind(device),
@@ -163,7 +186,6 @@ async function handleSync(request, env) {
 }
 
 /* ---------- Sincronización entre dispositivos (espacio = hash del código) ---------- */
-const MAX_RECORDS_PER_SPACE = 3000;
 const SEQ_NEXT = "(SELECT COALESCE(MAX(seq), 0) + 1 FROM records WHERE space = ?1)";
 
 async function handleSpaceSync(request, env) {
@@ -173,23 +195,31 @@ async function handleSpaceSync(request, env) {
   if (!/^[0-9a-f]{64}$/.test(space || "")) return json({ error: "space inválido" }, 400);
   if (!Number.isInteger(since) || since < 0) return json({ error: "since inválido" }, 400);
   if (!Array.isArray(records) || records.length > 100) return json({ error: "records inválidos" }, 400);
+  if (tooMany("space:" + space, LIMITS.spacePerMinute)) return json({ error: "demasiadas peticiones" }, 429);
   const now = Date.now();
   for (const r of records) {
     const ok = r && str(r.id, 80) && r.id.length > 0 && (r.col === "tasks" || r.col === "books") &&
       Number.isFinite(r.updatedAt) && r.updatedAt > 0 && r.updatedAt <= now + DAY &&
-      (r.deleted === 0 || r.deleted === 1) && str(r.data, 400000);
+      (r.deleted === 0 || r.deleted === 1) && str(r.data, LIMITS.recordChars);
     if (!ok) return json({ error: "registro inválido" }, 400);
   }
   const db = env.DB;
   if (records.length) {
-    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM records WHERE space = ?1").bind(space).first();
-    if (n + records.length > MAX_RECORDS_PER_SPACE) return json({ error: "espacio lleno" }, 413);
+    const used = await db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(data)), 0) AS bytes FROM records WHERE space = ?1").bind(space).first();
+    const incoming = records.reduce((sum, r) => sum + r.data.length, 0);
+    if (used.n + records.length > LIMITS.recordsPerSpace || used.bytes + incoming > LIMITS.bytesPerSpace * 1.5) {
+      return json({ error: "espacio lleno" }, 413);
+    }
+    if (used.n === 0) { // espacio nuevo: tope global
+      const { s } = await db.prepare("SELECT COUNT(*) AS s FROM spaces").first();
+      if (s >= LIMITS.maxSpaces) return json({ error: "servicio lleno" }, 503);
+    }
     await db.batch([
       db.prepare("INSERT INTO spaces (space, created_at, touched_at) VALUES (?1, ?2, ?2) ON CONFLICT(space) DO UPDATE SET touched_at = ?2").bind(space, now),
       ...records.map((r) => db.prepare(
         `INSERT INTO records (space, id, col, updated_at, deleted, data, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ${SEQ_NEXT})
          ON CONFLICT(space, id) DO UPDATE SET col = ?3, updated_at = ?4, deleted = ?5, data = ?6, seq = ${SEQ_NEXT}
-         WHERE excluded.updated_at > records.updated_at`
+         WHERE excluded.updated_at >= records.updated_at`
       ).bind(space, r.id, r.col, r.updatedAt, r.deleted, r.data)),
     ]);
   } else {
@@ -207,15 +237,29 @@ async function handleSpaceSync(request, env) {
   });
 }
 
+async function handleSpaceDelete(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "JSON inválido" }, 400); }
+  if (!/^[0-9a-f]{64}$/.test(body && body.space || "")) return json({ error: "space inválido" }, 400);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM records WHERE space = ?1").bind(body.space),
+    env.DB.prepare("DELETE FROM spaces WHERE space = ?1").bind(body.space),
+  ]);
+  return json({ ok: true });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const { pathname } = new URL(request.url);
+    const ip = request.headers.get("CF-Connecting-IP") || "local";
+    if (pathname !== "/" && tooMany("ip:" + ip, LIMITS.ipPerMinute)) return json({ error: "demasiadas peticiones" }, 429);
     try {
       await ensureSchema(env.DB);
       if (pathname === "/vapid" && request.method === "GET") return json({ publicKey: (await getKeys(env.DB)).publicB64 });
       if (pathname === "/sync" && request.method === "PUT") return await handleSync(request, env);
       if (pathname === "/space/sync" && request.method === "POST") return await handleSpaceSync(request, env);
+      if (pathname === "/space/delete" && request.method === "POST") return await handleSpaceDelete(request, env);
       if (pathname === "/unsync" && request.method === "POST") {
         const { device } = await request.json().catch(() => ({}));
         if (!/^[A-Za-z0-9_-]{16,64}$/.test(device || "")) return json({ error: "device inválido" }, 400);
@@ -229,5 +273,5 @@ export default {
     }
   },
   async scheduled(event, env, ctx) { ctx.waitUntil(deliver(env)); },
-  _test: { encryptPayload, vapidHeader, getKeys, deliver, b64u },
+  _test: { encryptPayload, vapidHeader, getKeys, deliver, b64u, LIMITS, resetRate: () => hits.clear() },
 };

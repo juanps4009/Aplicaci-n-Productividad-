@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.11.0-beta";
+const APP_VERSION = "0.12.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -85,6 +85,9 @@ const state = {
 })();
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+const APP = window.APP_CONFIG || {};
+/* Servidor efectivo: el propio del usuario (avanzado) o el de la app, sin que nadie cree nada */
+const serverUrl = () => state.settings.serverUrl || APP.server || "";
 const tracker = Sync.newTracker();
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -419,17 +422,21 @@ function renderSettings() {
   push.setAttribute("aria-checked", String(!!state.settings.pushOn));
   push.disabled = pushStatus.kind === "busy";
   const ps = $("#push-status");
-  ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : state.settings.serverUrl
+  ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : serverUrl()
     ? "Apagado: los avisos solo suenan con la app abierta o al abrirla."
     : "Necesita tu servidor (abajo). Sin él, los avisos suenan con la app abierta o al abrirla.");
   ps.classList.toggle("rem-error", pushStatus.kind === "error");
 
   if (document.activeElement !== $("#server-url")) $("#server-url").value = state.settings.serverUrl || "";
+  const adv = $("#server-adv");
+  if (!APP.server) adv.open = true; // sin servidor de la app, esta es la única forma de conectarse
   $("#server-connect").textContent = state.settings.serverUrl ? "Guardar dirección" : "Conectar";
+  $("#server-reset").classList.toggle("hidden", !(state.settings.serverUrl && APP.server));
   const ss = $("#server-status");
-  ss.textContent = serverStatus.text || (state.settings.serverUrl ? "Conectado." : "Sin servidor: todo funciona, pero solo en este dispositivo.");
+  ss.textContent = serverStatus.text || (state.settings.serverUrl ? "Usando tu servidor." : APP.server ? "Usando el servidor de la app." : "Sin servidor: todo funciona, pero solo en este dispositivo.");
   ss.classList.toggle("rem-error", serverStatus.kind === "error");
   renderSyncBody();
+  renderWidgetBlock();
 }
 
 $("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
@@ -733,6 +740,35 @@ const b64uToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/
 let pushStatus = { kind: "idle", text: "" };
 let pushTimer = null;
 
+/* Clave por dispositivo para cifrar el texto de los avisos que pasan por el servidor.
+   Se guarda también en IndexedDB para que el service worker pueda descifrarlos con la app cerrada. */
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("prod-keys", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbPut(key, value) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function pushCryptoKey() {
+  if (!state.settings.pushKey) {
+    state.settings.pushKey = Sync.b64u.enc(crypto.getRandomValues(new Uint8Array(32)));
+    save(KEYS.settings, state.settings);
+  }
+  const raw = Sync.b64u.dec(state.settings.pushKey);
+  await idbPut("pushKey", raw);
+  return Sync.importRawKey(raw);
+}
+
 function deviceId() {
   if (!state.settings.deviceId) {
     const bytes = crypto.getRandomValues(new Uint8Array(18));
@@ -751,8 +787,8 @@ async function pushGet(url) {
 }
 
 async function enablePush() {
-  const url = state.settings.serverUrl;
-  if (!url) return setPushStatus("error", "Primero conecta tu servidor (campo «Dirección de tu servidor», más abajo).");
+  const url = serverUrl();
+  if (!url) return setPushStatus("error", "No hay servidor configurado. Conecta uno en «Servidor propio (avanzado)».");
   if (!pushSupported()) return setPushStatus("error", "Este navegador no admite avisos con la app cerrada. Instala la app desde su dirección web.");
   setPushStatus("busy", "Conectando…");
   try {
@@ -763,6 +799,7 @@ async function enablePush() {
     let sub = await reg.pushManager.getSubscription();
     if (sub && state.settings.vapidKey !== publicKey) { await sub.unsubscribe(); sub = null; } // servidor nuevo: otra clave
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(publicKey) });
+    await pushCryptoKey();
     Object.assign(state.settings, { pushOn: true, vapidKey: publicKey });
     save(KEYS.settings, state.settings);
     await syncPush();
@@ -777,8 +814,8 @@ async function disablePush() {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) await sub.unsubscribe();
-    if (state.settings.serverUrl) {
-      await fetch(`${state.settings.serverUrl}/unsync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: deviceId() }) }).catch(() => {});
+    if (serverUrl()) {
+      await fetch(`${serverUrl()}/unsync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: deviceId() }) }).catch(() => {});
     }
   } catch { /* ya estaba desactivado */ }
   state.settings.pushOn = false;
@@ -793,23 +830,26 @@ function schedulePushSync() {
 }
 
 async function syncPush() {
-  const { pushOn, serverUrl } = state.settings;
-  if (!pushOn || !serverUrl) return;
+  const { pushOn } = state.settings;
+  const server = serverUrl();
+  if (!pushOn || !server) return;
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (!sub) throw new Error("La suscripción se perdió. Desactiva y vuelve a activar los avisos.");
     const now = Date.now();
     const items = [];
-    (state.settings.notifyHere ? state.tasks : []).forEach((task) => {
-      Reminders.nextFires(task, now, 14, 100, deviceId()).forEach(({ ms, remId }) => items.push({
-        id: `${remId}:${ms}`, fireAt: ms, title: task.text.slice(0, 120),
-        body: task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", tag: `r-${remId}-${ms}`,
-      }));
-    });
+    const pk = await pushCryptoKey();
+    for (const task of (state.settings.notifyHere ? state.tasks : [])) {
+      for (const { ms, remId } of Reminders.nextFires(task, now, 14, 100, deviceId())) {
+        const tag = `r-${remId}-${ms}`;
+        const text = JSON.stringify({ t: task.text.slice(0, 120), b: task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio" });
+        items.push({ id: `${remId}:${ms}`, fireAt: ms, title: await Sync.encryptText(pk, text, tag), body: "", tag }); // el servidor no puede leer el texto
+      }
+    }
     items.sort((a, b) => a.fireAt - b.fireAt);
     items.length = Math.min(items.length, 300);
-    const res = await fetch(`${serverUrl}/sync`, {
+    const res = await fetch(`${server}/sync`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device: deviceId(), subscription: sub.toJSON(), items }),
     });
@@ -827,7 +867,7 @@ let serverStatus = { kind: "idle", text: "" };
 let syncInfo = { kind: "idle", text: "", at: 0 };
 let syncTimer = null, syncing = false, qrOpen = false;
 
-const syncLinked = () => !!(state.settings.serverUrl && state.sync.space);
+const syncLinked = () => !!(serverUrl() && state.sync.space);
 const saveSync = () => save(KEYS.sync, state.sync);
 
 async function connectServer() {
@@ -854,6 +894,15 @@ async function connectServer() {
   }
 }
 $("#server-connect").addEventListener("click", connectServer);
+$("#server-reset").addEventListener("click", () => {
+  delete state.settings.serverUrl;
+  Object.assign(state.sync, { lastSeq: 0, lastPushAt: 0 });
+  saveSync();
+  save(KEYS.settings, state.settings);
+  serverStatus = { kind: "idle", text: "" };
+  renderSettings();
+  scheduleSync(0);
+});
 
 function agoText(ms) {
   const m = Math.floor((Date.now() - ms) / 60000);
@@ -861,7 +910,7 @@ function agoText(ms) {
 }
 
 function qrSvg() {
-  const url = `${location.origin}${location.pathname}#sync=${state.sync.code}&server=${encodeURIComponent(state.settings.serverUrl)}`;
+  const url = `${location.origin}${location.pathname}#sync=${state.sync.code}&server=${encodeURIComponent(serverUrl())}`;
   const qr = qrcode(0, "M");
   qr.addData(url);
   qr.make();
@@ -871,8 +920,8 @@ function qrSvg() {
 function renderSyncBody() {
   const box = $("#sync-body");
   const typed = $("#sync-code-in") ? $("#sync-code-in").value : "";
-  if (!state.settings.serverUrl) {
-    box.innerHTML = `<p class="muted text-xs">Primero conecta tu servidor (campo de arriba). Sin servidor, tus datos solo viven en este dispositivo.</p>`;
+  if (!serverUrl()) {
+    box.innerHTML = `<p class="muted text-xs">No hay servidor configurado. Conecta uno en «Servidor propio (avanzado)», más abajo. Sin servidor, tus datos solo viven en este dispositivo.</p>`;
     return;
   }
   if (!state.sync.space) {
@@ -902,11 +951,13 @@ function renderSyncBody() {
         <button class="btn-secondary py-3" data-action="sync-now">Sincronizar ahora</button>
         <button class="btn-danger-soft py-3" data-action="sync-unlink">Desvincular</button>
       </div>
+      <button class="link-btn" data-action="sync-erase">Borrar mis datos del servidor</button>
     </div>`;
 }
 
 async function joinSpace(code) {
-  state.sync = { code, space: await Sync.spaceId(code), lastSeq: 0, lastPushAt: 0 };
+  state.sync = { code, space: await Sync.spaceId(code), lastSeq: 0, lastPushAt: 0, v: 2 };
+  syncKeyPromise = null;
   saveSync();
   qrOpen = false;
   syncInfo = { kind: "busy", text: "", at: 0 };
@@ -934,9 +985,26 @@ $("#sync-body").addEventListener("click", async (e) => {
       break;
     case "sync-qr": qrOpen = !qrOpen; renderSettings(); break;
     case "sync-now": syncNow(); break;
+    case "sync-erase":
+      if (await askConfirm("¿Borrar tus datos del servidor? Se quedan en este dispositivo, pero los demás dispositivos con este código dejarán de recibir cambios.", "Borrar")) {
+        try {
+          const res = await fetch(`${serverUrl()}/space/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ space: state.sync.space }) });
+          if (!res.ok) throw new Error(`El servidor respondió ${res.status}`);
+          state.sync = { code: "", space: "", lastSeq: 0, lastPushAt: 0 };
+          syncKeyPromise = null;
+          saveSync();
+          syncInfo = { kind: "idle", text: "", at: 0 };
+          qrOpen = false;
+        } catch (err) {
+          syncInfo = { kind: "error", at: 0, text: err && err.name === "TypeError" ? "Sin conexión: no se pudo borrar. Inténtalo de nuevo." : err.message };
+        }
+        renderSettings();
+      }
+      break;
     case "sync-unlink":
       if (await askConfirm("¿Desvincular este dispositivo? Tus datos se quedan aquí, pero dejan de sincronizarse.", "Desvincular")) {
         state.sync = { code: "", space: "", lastSeq: 0, lastPushAt: 0 };
+        syncKeyPromise = null;
         saveSync();
         syncInfo = { kind: "idle", text: "", at: 0 };
         qrOpen = false;
@@ -945,6 +1013,30 @@ $("#sync-body").addEventListener("click", async (e) => {
       break;
   }
 });
+
+/* ---------- Widget de Android: un toque conecta el widget con tus datos ---------- */
+const isAndroid = /Android/i.test(navigator.userAgent);
+
+function widgetLink() {
+  const q = new URLSearchParams({ code: state.sync.code, server: serverUrl(), app: location.origin + location.pathname });
+  const fallback = encodeURIComponent(APP.widgetDownload || "");
+  return `intent://link?${q.toString()}#Intent;scheme=${APP.widgetScheme || "pendientes"};package=${APP.widgetPackage || "app.productividad.widget"};S.browser_fallback_url=${fallback};end`;
+}
+
+function renderWidgetBlock() {
+  const box = $("#widget-block");
+  if (!isAndroid) {
+    box.innerHTML = `<p class="muted text-xs">El widget de pantalla de inicio es solo para Android. Abre esta app desde tu celular Android para conectarlo.</p>`;
+  } else if (!syncLinked()) {
+    box.innerHTML = `<p class="muted text-xs">El widget lee tus tareas desde tu código de sincronización. Primero crea tu código (arriba) y vuelve aquí.</p>`;
+  } else {
+    box.innerHTML = `
+      <p class="muted text-xs">Muestra tus tareas pendientes con su prioridad en la pantalla de inicio. Al tocar una, se abre aquí.</p>
+      <a class="btn-primary block py-3 text-center" id="widget-connect" href="${esc(widgetLink())}">Conectar el widget</a>
+      <p class="muted mt-1 text-xs">Si aún no lo tienes, se abrirá su descarga: instálalo y vuelve a tocar este botón. Después, mantén pulsada la pantalla de inicio → Widgets → Pendientes.</p>
+      <a class="muted text-xs" href="${esc(APP.widgetDownload || "#")}" target="_blank" rel="noopener">Descargar el widget</a>`;
+  }
+}
 
 /* Ids que se están editando ahora mismo: no se pisan con datos que llegan */
 const busyIds = () => new Set([...state.editing, ...state.drafts.keys(), state.editingTask, state.notesTask].filter(Boolean));
@@ -955,23 +1047,46 @@ function scheduleSync(delay = 2000) {
   syncTimer = setTimeout(syncNow, delay);
 }
 
+let syncKeyPromise = null;
+const getSyncKey = () => (syncKeyPromise ||= Sync.deriveKey(state.sync.code));
+
+const SYNC_ERRORS = {
+  413: "Tus datos superan el límite gratuito por código.",
+  429: "El servidor está ocupado; se reintentará en un momento.",
+  503: "El servicio está lleno por ahora; tus datos siguen a salvo en este dispositivo.",
+};
+
 async function syncNow() {
   if (!syncLinked()) return;
   if (syncing) return scheduleSync(1500);
   syncing = true;
   const t0 = Date.now();
-  const { serverUrl } = state.settings;
+  const server = serverUrl();
   try {
     commitTasksQuiet();
+    const key = await getSyncKey();
+    if (state.sync.v !== 2) { // datos subidos sin cifrar por versiones anteriores: bajar todo y volver a subirlo cifrado
+      Object.assign(state.sync, { lastSeq: 0, lastPushAt: 0, v: 2 });
+    }
     const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt);
     let since = state.sync.lastSeq, deferred = 0, changed = false, more = false;
     do {
-      const res = await fetch(`${serverUrl}/space/sync`, {
+      const chunk = await Promise.all(pending.splice(0, 100).map(async (r) => (
+        r.deleted ? r : { ...r, data: await Sync.encryptText(key, r.data, `${r.id}|${r.col}`) })));
+      const res = await fetch(`${server}/space/sync`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ space: state.sync.space, since, records: pending.splice(0, 100) }),
+        body: JSON.stringify({ space: state.sync.space, since, records: chunk }),
       });
-      if (!res.ok) throw new Error(res.status === 413 ? "El espacio de sincronización está lleno." : `El servidor respondió ${res.status}`);
+      if (!res.ok) throw new Error(SYNC_ERRORS[res.status] || `El servidor respondió ${res.status}`);
       const data = await res.json();
+      // descifrar lo que llega; lo que no se pueda descifrar (otra clave o alterado) se ignora
+      const incoming = [];
+      for (const r of data.records) {
+        if (r.deleted) { incoming.push(r); continue; }
+        const plain = await Sync.decryptText(key, r.data, `${r.id}|${r.col}`);
+        if (plain !== null) incoming.push({ ...r, data: plain });
+      }
+      data.records = incoming;
       const busy = busyIds();
       const rt = Sync.mergeIncoming("tasks", state.tasks, data.records, tracker, state.tombs, busy);
       const rb = Sync.mergeIncoming("books", state.books, data.records, tracker, state.tombs, busy);
@@ -1053,7 +1168,7 @@ function handleLinkHash() {
   if (!Sync.isValidCode(code) || !/^https:\/\/[^/]+/.test(server) || state.sync.code === code) return;
   askConfirm(`¿Unir este dispositivo al código ${Sync.formatCode(code)}? Tus tareas y resúmenes de aquí se sumarán a los del otro dispositivo.`, "Unir").then(async (ok) => {
     if (!ok) return;
-    if (state.settings.serverUrl !== server) { state.settings.serverUrl = server; save(KEYS.settings, state.settings); }
+    if (serverUrl() !== server) { state.settings.serverUrl = server; save(KEYS.settings, state.settings); } // solo si es otro servidor
     renderSettings();
     $("#settings").classList.remove("hidden");
     await joinSpace(code);

@@ -7,15 +7,14 @@ No es una segunda app para usar: es un complemento pequeño que lee tus tareas d
 
 ## Instalar (una sola vez)
 
-1. **Conseguir el APK.** En GitHub abre tu repositorio → pestaña **Releases** → entra a **«Widget de Pendientes»** (etiqueta `widget-latest`) y descarga `pendientes-widget.apk` **desde el celular**.
-   (Si no hay Release todavía: pestaña **Actions** → «Widget de Android» → espera la palomita verde. Si sale una ✕ roja, copia el mensaje de error y mándamelo.)
-2. **Instalar.** Abre el archivo descargado. Android te pedirá permiso para *instalar apps desconocidas* desde tu navegador: acéptalo solo para esto.
-3. **Conectar con tus datos.** Abre la app **«Pendientes (widget)»** y escribe:
-   - *Dirección de tu servidor* (la misma de Ajustes → Tus dispositivos en la app).
-   - *Código de sincronización* (el de la app; lo ves en Ajustes → Tus dispositivos).
-   - *Dirección de la app* (ya viene puesta: la de GitHub Pages).
-   Pulsa **Guardar**.
-4. **Añadir el widget.** Mantén pulsado un espacio vacío de la pantalla de inicio → **Widgets** → **Pendientes (widget)** → arrástralo. Puedes cambiarle el tamaño.
+1. **En la app web** (en tu celular Android): Ajustes → *Widget de Android* → **Conectar el widget**.
+   - Si aún no tienes el widget, se abre la página de descarga: baja `pendientes-widget.apk` e instálalo (Android pedirá permiso para *instalar apps desconocidas* desde tu navegador; acéptalo solo para esto).
+   - Después vuelve a la app web y toca **Conectar el widget** otra vez: el widget recibe tu código y queda conectado, sin escribir nada.
+2. **Añadir el widget.** Mantén pulsado un espacio vacío de la pantalla de inicio → **Widgets** → **Pendientes (widget)** → arrástralo. Puedes cambiarle el tamaño.
+
+(Para conectarlo a mano: abre la app «Pendientes (widget)» y escribe el servidor y el código de Ajustes → Tus dispositivos.)
+
+**Para el dueño:** el APK lo compila GitHub solo al cambiar la carpeta `android/` y lo deja en *Releases* (etiqueta `widget-latest`). Si el widget no se conecta, revisa que `widgetDownload` en `config.js` apunte a esa página.
 
 ## Cómo se usa
 
@@ -23,6 +22,7 @@ No es una segunda app para usar: es un complemento pequeño que lee tus tareas d
 - **Tocar una tarea** abre la app en esa tarea y la resalta.
 - **↻** actualiza la lista. Sola se actualiza cada ~30 minutos (límite de Android) y cuando agregas el widget.
 - Sin conexión muestra lo último que descargó.
+- Tus tareas viajan cifradas; el widget las descifra en tu celular con tu código.
 
 ## Cosas a saber
 
