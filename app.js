@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.13.0-beta";
+const APP_VERSION = "0.13.1-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -1044,7 +1044,13 @@ function renderWidgetBlock() {
         <li>Al terminar, toca <b>Abrir</b> y luego <b>Instalar</b> (si Android lo pide, permite instalar desde este navegador).</li>
         <li>Vuelve aquí y toca «Conectar el widget» otra vez. Después, mantén pulsada la pantalla de inicio → Widgets → Pendientes.</li>
       </ol>
-      <a class="muted text-xs" href="${esc(APP.widgetDownload || "#")}" download="pendientes-widget.apk">Solo descargar el widget</a>`;
+      <p class="muted text-xs">¿Ya lo tienes instalado? «Conectar el widget» no lo vuelve a descargar. Para tener la versión nueva (tamaños desde 2x2):</p>
+      <a class="btn-secondary block py-3 text-center" id="widget-update" href="${esc(APP.widgetDownload || "#")}" download="pendientes-widget.apk">Descargar la versión nueva del widget</a>
+      <ol class="steps">
+        <li>Ábrelo cuando termine y toca <b>Instalar</b> (se instala encima, sin borrar nada).</li>
+        <li>Quita de la pantalla de inicio el widget que ya tenías (mantenlo pulsado → Quitar) y añádelo otra vez desde Widgets → Pendientes. Así Android toma los tamaños nuevos.</li>
+        <li>Mantenlo pulsado y arrastra los bordes para achicarlo (2x2) o agrandarlo.</li>
+      </ol>`;
   }
 }
 

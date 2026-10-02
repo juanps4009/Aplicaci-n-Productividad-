@@ -113,7 +113,7 @@ await D.click('[data-action=sync-create]'); await D.waitForSelector('#widget-con
 const href = await D.getAttribute('#widget-connect', 'href'); const codeD = (await D.locator('.code-box').innerText()).trim().replace(/-/g, '');
 assert(href.startsWith('intent://link?') && href.includes('code=' + codeD) && href.includes('server=' + encodeURIComponent(SERVER)) && href.includes('#Intent;scheme=pendientes;package=app.productividad.widget;S.browser_fallback_url=' + encodeURIComponent('https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk') + ';end'));
 console.log('  ', href.slice(0, 120) + '…'); ok('botón «Conectar el widget» (Android): enlace intent con código, servidor, app y descarga DIRECTA del APK como respaldo');
-assert.strictEqual(await D.locator('.steps li').count(), 3); assert.strictEqual(await D.getAttribute('#widget-block a[download]', 'href'), 'https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk'); ok('pasos de instalación visibles y enlace «Solo descargar» directo al archivo');
+assert.strictEqual(await D.locator('.steps li').count(), 6); assert.strictEqual(await D.getAttribute('#widget-update', 'href'), 'https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk'); ok('pasos de instalación y de actualización visibles, y botón «Descargar la versión nueva» directo al archivo');
 assert.strictEqual(await C.evaluate(() => /Android/i.test(navigator.userAgent)), false); await openSettings(C); assert((await C.locator('#widget-block').innerText()).includes('solo para Android')); await C.click('#close-settings'); ok('en un computador: explica que el widget es solo Android');
 
 // ---- borrar mis datos del servidor

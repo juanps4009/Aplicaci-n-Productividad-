@@ -36,7 +36,7 @@ Preferencias del dueño (respétalas): todo **gratis**; interfaz **simple y limp
   Desde la 1.2 es **un solo widget adaptable** (mín. 2x2): `TaskWidgetProvider.update` lee el tamaño (`OPTION_APPWIDGET_MIN_WIDTH/HEIGHT`) y `TaskLogic.isCompact` elige entre `widget.xml` (grande) y `widget_compact.xml` (2x2, 4x2; cabecera «Pendientes · N»); la lista usa `widget_item` o `widget_item_compact` según extras del servicio. Se redibuja en `onAppWidgetOptionsChanged`.
 - **Windows**: `escritorio/Crear-acceso-directo.cmd` (+ `.url`, `LEEME.txt`, `icons/icon.ico`).
 
-## 4. Estado actual (versión `0.13.0-beta`, ver `APP_VERSION` en `app.js`)
+## 4. Estado actual (versión `0.13.1-beta`, ver `APP_VERSION` en `app.js`)
 
 Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes, recordatorios (local), tema, sincronización cifrada entre dispositivos (con el código del Worker real corriendo sobre una base simulada), QR/enlace de vinculación, borrado de datos del servidor, límites, push cifrado (con el servidor simulado), enlace `#task=`, PWA offline, APK compilado en CI.
 
