@@ -1,0 +1,13 @@
+const { chromium } = require('playwright'); const assert=require('assert');
+(async()=>{const b=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined});
+const p=await (await b.newContext({viewport:{width:390,height:800}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(()=>{ if(!localStorage.getItem('x')){localStorage.setItem('x','1');
+ localStorage.setItem('prod.settings',JSON.stringify({theme:'auto',pushUrl:'https://viejo.test',pushOn:true}));
+ localStorage.setItem('prod.tasks',JSON.stringify([{id:'t1',text:'v0.9',done:false,priority:'high',due:'',reminders:[{id:'r1',kind:'daily',time:'09:00',created:1000,lastFired:5000,acked:false}],doc:[]}]));}});
+await p.goto('http://localhost:8123/');
+const st=await p.evaluate(()=>({s:JSON.parse(localStorage.getItem('prod.settings')),t:JSON.parse(localStorage.getItem('prod.tasks')),r:JSON.parse(localStorage.getItem('prod.remstate'))}));
+assert.strictEqual(st.s.serverUrl,'https://viejo.test'); assert.strictEqual(st.s.pushUrl,undefined); assert(['light','dark'].includes(st.s.theme));
+assert.strictEqual(st.t[0].reminders[0].lastFired,undefined); assert(st.t[0].updatedAt>0);
+assert(st.r.r1.lastFired>=5000 && st.r.r1.acked===false);
+console.log('OK migración desde 0.9 (pushUrl→serverUrl, estado de avisos local, updatedAt, tema fijo)', errs);
+await b.close();})();

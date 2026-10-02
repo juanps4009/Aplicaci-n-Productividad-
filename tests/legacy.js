@@ -1,0 +1,16 @@
+const { chromium } = require('playwright');
+const assert=require('assert');
+(async()=>{const b=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined});
+const p=await (await b.newContext({viewport:{width:390,height:800}})).newPage();
+const errs=[];p.on('pageerror',e=>errs.push(e.message));
+await p.addInitScript(()=>{ if(!localStorage.getItem('s')){localStorage.setItem('s','1');
+ localStorage.setItem('prod.tasks',JSON.stringify([{id:'1',text:'v0.5 con notas',done:false,priority:'high',due:'',notified:false,notes:'uno\ndos'},{id:'2',text:'v1',done:false},null,'basura',{id:'4',text:'v0.4',done:true,doc:[{id:'a',type:'p',text:'x'}]}]));
+ localStorage.setItem('prod.books',JSON.stringify([{id:'b1',title:'Bloques',author:'A',ideas:'i'},{id:'b2',title:'Entries',author:'B',template:'free',entries:[{id:'e',type:'title',text:'T'}]},{id:'b3',title:'Doc',author:'C',template:'free',doc:[{id:'d',type:'h1',text:'T'}]},7]));
+ localStorage.setItem('prod.settings','{"groupBy":"priority"}');}});
+await p.goto('http://localhost:8123/');
+console.log('tareas',await p.locator('.task-item').count(),'libros',await (async()=>{await p.click('.nav-btn[data-tab=books]');return p.locator('.book-card').count()})());
+await p.click('.nav-btn[data-tab=tasks]');
+await p.click('.task-item:has-text("v0.5 con notas") [data-action=notes-task]');
+console.log('bloques de notas:',await p.locator('#notes-editor .blk').count());
+console.log('errores',errs);
+await b.close();})();

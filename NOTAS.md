@@ -1,0 +1,69 @@
+# Notas para continuar el proyecto (para Claude en el computador del dueño)
+
+Lee esto primero. Resume qué es el proyecto, cómo está armado, qué quedó hecho, qué falta y cómo probar.
+Las conversaciones anteriores se hicieron con Claude en la nube; **esta es la primera vez que hay acceso al computador del dueño**.
+
+## 1. Qué es y qué quiere el dueño
+
+**Pendientes y Resúmenes**: app web instalable (PWA) en español, minimalista y pensada primero para celular, con:
+- **Pendientes**: tareas con prioridad (punto o borde), fecha límite, agrupación por fecha o prioridad, filtro, notas por tarea con editor libre (comando `/` para título, subtítulo, lista, cita), y **recordatorios** por tarea.
+- **Resúmenes de libros**: lista compacta (título y autor pequeño) → al entrar, página completa. Plantilla «Por bloques» (4 cuadros) o «Libre» (editor con `/`, con puntos de navegación a la derecha, uno por título).
+- Tema claro/oscuro con un interruptor, sincronización entre celular y computador, widget de Android.
+
+Preferencias del dueño (respétalas): todo **gratis**; interfaz **simple y limpia**; que **una persona normal** use sincronización y widget con **un botón**, sin crear servidores; textos en **español**; quiere probar rápido y dar retroalimentación constante. No quiere que se le pida hacer pasos técnicos largos.
+
+## 2. Dónde vive todo
+
+| Cosa | Dónde |
+|---|---|
+| Código | Repositorio GitHub `juanps4009/Aplicaci-n-Productividad-`, rama de trabajo **`claude/hopeful-brahmagupta-m6bura`** (no hay pull request ni rama principal con contenido) |
+| App publicada | GitHub Pages, sirve directamente esa rama: `https://juanps4009.github.io/Aplicaci-n-Productividad-/` (se actualiza 1-2 min tras cada push) |
+| Servidor | Cloudflare Worker + D1 del dueño: `https://avisos-productividad.juanrincon-oy.workers.dev` (código en `worker/index.js`; el dueño lo pega en el panel de Cloudflare) |
+| APK del widget | Lo compila GitHub Actions (`.github/workflows/android-widget.yml`) y lo publica en la Release `widget-latest`, archivo `pendientes-widget.apk` |
+| Copia de pruebas | Artefacto de claude.ai `https://claude.ai/artifact/C1QR1KRPKQW9xQ1R7n4LxW` (generada con `python3 scripts/build-beta.py` → `dist/beta.html`, ignorada por git; en el artefacto no hay service worker ni push) |
+
+**Configuración de un solo lugar:** `config.js` (`server`, `widgetDownload`, `widgetScheme`, `widgetPackage`). El APK lee `server` de ese archivo al compilar.
+
+## 3. Arquitectura (resumen)
+
+- **Sin dependencias ni build** salvo `scripts/build-beta.py`. Archivos clásicos cargados por `index.html` en este orden: `vendor/qrcode.js` (MIT), `config.js`, `reminders.js`, `sync.js`, `app.js`. `styles.css` usa variables CSS (claro/oscuro).
+- **Datos**: `localStorage` (`prod.tasks`, `prod.books`, `prod.settings`, `prod.sync`, `prod.tomb`, `prod.remstate`…). Migraciones de formatos antiguos al arrancar en `app.js` (`migrateTask`, `migrateBook`, `migrateStorage`, `loadList` descarta datos dañados). **Ojo**: un error en este arranque deja la app muerta; hay pruebas de migración.
+- **`reminders.js`** (puro): `occurrences`, `nextFires`, `dueFires`, `describe`. Tipos: una vez, antes del vencimiento, diario, semanal, cada X horas. El estado «ya sonó» es **local por dispositivo** (`state.remState`); los «posponer» llevan `onlyDevice`.
+- **`sync.js`** (puro): códigos de 20 caracteres Crockford, `spaceId` = SHA-256 del código, sellos `updatedAt` automáticos (`stampChanges`), borrados como tombstones, fusión «gana el cambio más reciente por registro» (`mergeIncoming`), y **cifrado de extremo a extremo** AES-256-GCM con clave HKDF del código (formato `e1:` + base64url(iv+cifrado), AAD `id|col`).
+- **`worker/index.js`**: `GET /` (texto «…funcionando ✓»), `GET /vapid`, `PUT /sync` y `POST /unsync` (avisos push, cifrados con una clave por dispositivo guardada en IndexedDB para que `sw.js` los descifre), `POST /space/sync` (sincronización, devuelve cambios con `seq`), `POST /space/delete`. Cron cada minuto envía los push (Web Push RFC 8291 + VAPID, claves generadas solas en D1). Límites por IP/código/tamaño. Los datos sincronizados llegan **cifrados**: el servidor no puede leerlos.
+- **`sw.js`**: caché «red primero» (sube `CACHE` si cambia la lista de archivos), `importScripts("sync.js")`, manejo de `push` y `notificationclick`.
+- **Android (`android/`)**: widget en Java sin dependencias. Lee `/space/sync`, descifra con `TaskCrypto`, lista pendientes ordenadas por fecha y prioridad; al tocar una tarea abre `<app>#task=ID` (la app lo entiende: `focusTask`). Pantalla de ajustes con dos tarjetas: «usar el servidor de la app» o «mi propio servidor» + pegar código. La app web lo conecta con un enlace `intent://link?code=…#Intent;scheme=pendientes;…;S.browser_fallback_url=<APK directo>;end`.
+- **Windows**: `escritorio/Crear-acceso-directo.cmd` (+ `.url`, `LEEME.txt`, `icons/icon.ico`).
+
+## 4. Estado actual (versión `0.13.0-beta`, ver `APP_VERSION` en `app.js`)
+
+Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes, recordatorios (local), tema, sincronización cifrada entre dispositivos (con el código del Worker real corriendo sobre una base simulada), QR/enlace de vinculación, borrado de datos del servidor, límites, push cifrado (con el servidor simulado), enlace `#task=`, PWA offline, APK compilado en CI.
+
+**Nunca se probó en el mundo real** (el entorno en la nube no podía): 
+- El Worker desplegado en Cloudflare con tráfico real (el dueño dice que lo creó; **no está confirmado que pegara la última versión de `worker/index.js`** — pídele que abra la dirección y compruebe, y que vuelva a pegar el archivo si hace falta).
+- Notificaciones push reales en un celular.
+- El widget en un Android real. El último error reportado (Android 14: «error al añadir el widget») se atribuyó a un `PendingIntent` mutable implícito y se corrigió con `OpenTaskActivity`; **falta que el dueño confirme que ya se añade bien**.
+- Que «Conectar el widget» (enlace `intent://`) descargue el APK y luego conecte con un toque.
+- Que `Crear-acceso-directo.cmd` funcione en su Windows (no se pudo ejecutar).
+
+## 5. Pendiente / ideas
+
+- Confirmar con el dueño lo de arriba y corregir lo que falle.
+- Pedido original aún sin hacer: acceso directo/atajos y, a futuro, publicar en Play Store (cuesta 25 USD una vez; el dueño prefiere gratis por ahora). Opción: empaquetar la PWA con Bubblewrap/PWABuilder.
+- Mejoras posibles: acciones de «posponer» dentro de la notificación push (hoy se pospone desde el recuadro de la app), copia de seguridad exportar/importar, versión de escritorio con diseño más ancho (hoy el contenido está centrado a 640 px), más comandos del editor (casillas, separador), subtítulos como puntos en el carril del resumen.
+- Seguridad/privacidad: cualquiera con el código ve los datos; si se pierde el código no hay recuperación. `privacidad.html` lo explica. No hay cuentas.
+- Si el servicio crece: vigilar el plan gratuito de Cloudflare (peticiones diarias, D1).
+
+## 6. Cómo probar
+
+Hay una carpeta `tests/` con **pruebas automáticas** (ver `tests/README.md`): `npm run unit` (lógica y servidor, sin navegador) y `npm run e2e` (navegador, requiere `python -m http.server 8123` en la raíz). Node ≥ 22.13. Para la lógica del widget Java se usó `javac` contra `android-all` (no está en el repo); la compilación real la valida GitHub Actions.
+
+Flujo de trabajo usado: cambiar → correr pruebas → `python3 scripts/build-beta.py` (si se quiere republicar la copia de pruebas) → commit y push a la rama → esperar el despliegue de Pages. **No abrir pull request ni tocar otras ramas sin que el dueño lo pida.**
+
+## 7. Datos que NO debes pedir ni guardar
+
+Códigos de sincronización de personas, contraseñas, tokens. La dirección del Worker es pública (está en `config.js`). La llave `android/debug.keystore` es de depuración y pública a propósito (solo permite actualizar el APK encima del anterior).
+
+## 8. Primer mensaje sugerido para el dueño
+
+«Hola, soy Claude en tu computador. Primero voy a comprobar tres cosas: (1) que tu servidor responde, (2) que el acceso directo del escritorio quedó bien, y (3) que el widget se instaló. ¿Quieres que empiece por el acceso directo?»

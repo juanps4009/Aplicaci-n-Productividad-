@@ -1,0 +1,127 @@
+import { chromium } from 'playwright';
+import { DatabaseSync } from 'node:sqlite';
+import assert from 'node:assert';
+import worker from '../worker/index.js';
+
+function mockD1() { const db = new DatabaseSync(':memory:');
+  const mk = (sql) => { let args = []; const o = { bind(...a){args=a;return o;}, async run(){db.prepare(sql).run(...args);return {success:true};}, async all(){return {results:db.prepare(sql).all(...args)};}, async first(){return db.prepare(sql).get(...args)??null;}, _run(){db.prepare(sql).run(...args);} }; return o; };
+  return { prepare: mk, async batch(list){ for (const s of list) s._run(); return []; }, raw: db }; }
+const env = { DB: mockD1() };
+const SERVER = 'https://avisos.test';
+const b = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+const errs = [];
+async function device(name, scheme = 'light') {
+  const ctx = await b.newContext({ viewport: { width: 390, height: 800 }, colorScheme: scheme, permissions: ['notifications'], serviceWorkers: 'block' });
+  const p = await ctx.newPage();
+  p.on('pageerror', e => errs.push(name + ': ' + e.message)); p.on('console', m => { if (m.type() === 'error') errs.push(name + ': ' + m.text()); });
+  await p.route(SERVER + '/**', async (route) => {
+    const req = route.request();
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': '*' };
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const r = await worker.fetch(new Request(req.url(), { method: req.method(), body: req.postData() || undefined }), env);
+    return route.fulfill({ status: r.status, headers: { ...cors, 'content-type': r.headers.get('content-type') || 'text/plain' }, body: await r.text() });
+  });
+  await p.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript', body: 'window.APP_CONFIG = { server: "' + SERVER + '", widgetDownload: "https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk", widgetScheme: "pendientes", widgetPackage: "app.productividad.widget" };' }));
+  await p.goto('http://localhost:8123/');
+  return p;
+}
+const ok = (n) => console.log('OK', n);
+const tasks = (p) => p.$$eval('.task-item .task-text', e => e.map(x => x.textContent));
+const openSettings = async (p) => { if (await p.locator('#settings.hidden').count()) await p.click('#open-settings'); };
+const addTask = async (p, text) => { await p.fill('#task-input', text); await p.click('#task-form button[type=submit]'); };
+const syncNow = async (p) => { await p.click('[data-action=sync-now]'); await p.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText), null, { timeout: 5000 }); await p.waitForTimeout(150); };
+
+const A = await device('A-celular'), B = await device('B-pc', 'dark');
+// ---- tema con interruptor
+assert.strictEqual(await A.evaluate(() => document.documentElement.dataset.theme), 'light'); // primera vez: toma el del sistema
+assert.strictEqual(await B.evaluate(() => document.documentElement.dataset.theme), 'dark');
+await openSettings(A); assert.strictEqual(await A.locator('.seg[data-setting=theme]').count(), 0); assert.strictEqual(await A.locator('#theme-switch').getAttribute('aria-checked'), 'false');
+await A.click('#theme-switch'); assert.strictEqual(await A.evaluate(() => document.documentElement.dataset.theme), 'dark'); assert.strictEqual(await A.locator('#theme-switch').getAttribute('aria-checked'), 'true');
+await A.reload(); assert.strictEqual(await A.evaluate(() => document.documentElement.dataset.theme), 'dark'); await A.click('#open-settings'); await A.click('#theme-switch'); assert.strictEqual(await A.evaluate(() => document.documentElement.dataset.theme), 'light');
+ok('interruptor de tema (sin "Automático", persiste, toma el tema del sistema la 1ª vez)');
+await A.click('#close-settings');
+
+// ---- la sincronización es lo primero que se ve y hay un atajo en la cabecera
+assert.strictEqual(await A.locator('#open-sync:visible').count(), 1);
+await A.click('#open-sync');
+const posSync = await A.evaluate(() => document.querySelector('#sync-card').getBoundingClientRect().top - document.querySelector('.sheet').getBoundingClientRect().top);
+const posTheme = await A.evaluate(() => document.querySelector('#theme-switch').getBoundingClientRect().top - document.querySelector('.sheet').getBoundingClientRect().top);
+assert(posSync < posTheme && posSync < 120); assert(await A.locator('#sync-card [data-action=sync-create]').isVisible()); ok('icono de nube en la cabecera: abre Ajustes con «Crear código nuevo» arriba y visible');
+await A.screenshot({ path: '/tmp/v13-sync-card.png' }); await A.click('#close-settings');
+assert.strictEqual(await A.locator('#sync-badge.hidden').count(), 1);
+// ---- A crea datos previos y se conecta
+await addTask(A, 'Tarea A1'); await addTask(A, 'Tarea A2');
+await A.click('.nav-btn[data-tab=books]'); await A.click('#new-book'); await A.fill('[data-field=title]', 'Libro de A'); await A.fill('[data-field=author]', 'Autor A'); await A.click('[data-action=save]'); await A.click('#book-back');
+await A.click('.nav-btn[data-tab=tasks]'); await openSettings(A);
+await openSettings(A); await A.waitForTimeout(500); await A.waitForSelector('[data-action=sync-create]'); assert.strictEqual(await A.locator('#server-adv').evaluate(e=>e.open), false); ok('con servidor de la app: se puede crear código sin configurar nada (servidor propio plegado)');
+await A.click('[data-action=sync-create]'); await A.waitForSelector('.code-box'); await A.click('#close-settings'); assert.strictEqual(await A.locator('#sync-badge:not(.hidden)').count(), 1); await A.click('#open-sync');
+const code = (await A.locator('.code-box').innerText()).trim();
+assert(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){4}$/.test(code)); await A.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText));
+console.log('  código:', code); ok('A crea código y sube sus datos');
+assert.strictEqual(env.DB.raw.prepare("SELECT COUNT(*) c FROM records WHERE deleted=0").get().c, 3);
+const stored = env.DB.raw.prepare('SELECT data FROM records').all().map(r => r.data).join('|'); assert(!/Tarea A1|Libro de A|Autor A/.test(stored) && stored.split('|').every(x => x.startsWith('e1:'))); ok('el servidor solo guarda datos cifrados (no se lee ningún título)');
+
+// ---- B se une con el código (escrito en minúsculas y sin guiones)
+await addTask(B, 'Tarea B0 (previa)');
+await openSettings(B); await B.waitForSelector('[data-action=sync-join]');
+await B.fill('#sync-code-in', 'abc'); await B.click('[data-action=sync-join]'); assert((await B.locator('#sync-body').innerText()).includes('20 letras')); ok('rechaza códigos inválidos');
+await B.fill('#sync-code-in', code.replace(/-/g, '').toLowerCase()); await B.click('[data-action=sync-join]'); await B.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText));
+await B.click('#close-settings');
+assert.deepStrictEqual((await tasks(B)).sort(), ['Tarea A1', 'Tarea A2', 'Tarea B0 (previa)']); ok('B recibe lo de A y conserva lo suyo (unión)');
+await B.click('.nav-btn[data-tab=books]'); assert((await B.locator('.book-row-title').allInnerTexts()).includes('Libro de A')); ok('B recibe el resumen de A');
+await B.click('.nav-btn[data-tab=tasks]');
+
+// ---- A recibe lo de B
+await syncA(); async function syncA() { await openSettings(A); await syncNow(A); await A.click('#close-settings'); }
+assert((await tasks(A)).includes('Tarea B0 (previa)')); ok('A recibe la tarea de B');
+
+// ---- edición y borrado
+await B.click('.task-item:has-text("Tarea A1") [data-action=menu-task]'); await B.click('#menu-edit'); await B.fill('[data-edit=text]', 'Tarea A1 editada en PC'); await B.click('[data-action=save-task]');
+await B.waitForTimeout(2600); // sincronización automática tras el cambio
+await syncA(); assert((await tasks(A)).includes('Tarea A1 editada en PC')); ok('edición en B llega a A (sincronización automática de B + "ahora" en A)');
+await A.click('.task-item:has-text("Tarea A2") [data-action=menu-task]'); await A.click('#menu-delete'); await A.waitForTimeout(2600);
+await openSettings(B); await syncNow(B); await B.click('#close-settings');
+assert(!(await tasks(B)).includes('Tarea A2')); ok('borrado en A se propaga a B');
+// completar
+await A.click('.task-item:has-text("Tarea B0") input[type=checkbox]'); await A.waitForTimeout(2600);
+await openSettings(B); await syncNow(B); await B.click('#close-settings');
+assert.strictEqual(await B.locator('.task-item:has-text("Tarea B0")').count(), 0); assert.strictEqual(await B.locator('.group[data-group=done] .group-head .count').innerText(), '1'); ok('tarea completada en A aparece completada en B');
+
+// ---- recordatorios y dispositivos
+await B.click('.task-item:has-text("Tarea A1") [data-action=menu-task]'); await B.click('#menu-remind'); await B.click('[data-action=rem-add]'); await B.click('[data-action=rem-kind][data-kind=daily]'); await B.fill('#rem-time', '18:00'); await B.click('[data-action=rem-save]'); await B.click('#rem-close');
+await B.waitForTimeout(2600); await syncA();
+assert((await A.locator('.task-item:has-text("Tarea A1") .due-label').innerText()).includes('🔔')); assert.strictEqual(await A.locator('.att-row').count(), 0); ok('el recordatorio llega a A sin avisos atrasados');
+const remA = await A.evaluate(() => JSON.parse(localStorage.getItem('prod.tasks')).flatMap(t => t.reminders)); assert(remA.every(r => r.lastFired === undefined && r.acked === undefined)); ok('el estado de "ya sonó" no viaja en los datos sincronizados');
+await openSettings(A); await A.click('#notify-switch'); assert.strictEqual(await A.locator('#notify-switch').getAttribute('aria-checked'), 'false'); await A.click('#notify-switch'); await A.click('#close-settings'); ok('interruptor de avisos por dispositivo');
+
+// ---- QR y enlace de vinculación
+await openSettings(A); await A.click('[data-action=sync-qr]'); assert.strictEqual(await A.locator('.qr-box svg').count(), 1); await A.screenshot({ path: '/tmp/v10-qr.png' }); await A.click('[data-action=sync-qr]'); await A.click('#close-settings');
+const C = await device('C-nuevo');
+await C.goto('http://localhost:8123/#sync=' + code.replace(/-/g, '') + '&server=' + encodeURIComponent(SERVER));
+await C.waitForSelector('#confirm:not(.hidden)'); assert((await C.locator('#confirm-msg').innerText()).includes(code)); assert.strictEqual(await C.evaluate(() => location.hash), ''); ok('enlace/QR: pide confirmar y limpia el código de la barra');
+await C.click('#confirm-ok'); await C.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText)); await C.click('#close-settings');
+assert((await tasks(C)).includes('Tarea A1 editada en PC')); ok('C se une por enlace y recibe los datos');
+
+// ---- widget de Android
+const AND = await b.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 800 }, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36' }); const D = await AND.newPage();
+await D.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript', body: 'window.APP_CONFIG = { server: "' + SERVER + '", widgetDownload: "https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk", widgetScheme: "pendientes", widgetPackage: "app.productividad.widget" };' }));
+await D.route(SERVER + '/**', async (route) => { const req = route.request(); const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': '*' };
+  if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors }); const r = await worker.fetch(new Request(req.url(), { method: req.method(), body: req.postData() || undefined }), env); return route.fulfill({ status: r.status, headers: { ...cors, 'content-type': r.headers.get('content-type') || 'text/plain' }, body: await r.text() }); });
+await D.goto('http://localhost:8123/'); await D.click('#open-settings');
+assert((await D.locator('#widget-block').innerText()).includes('Primero crea tu código')); ok('widget: antes de sincronizar pide crear el código');
+await D.click('[data-action=sync-create]'); await D.waitForSelector('#widget-connect');
+const href = await D.getAttribute('#widget-connect', 'href'); const codeD = (await D.locator('.code-box').innerText()).trim().replace(/-/g, '');
+assert(href.startsWith('intent://link?') && href.includes('code=' + codeD) && href.includes('server=' + encodeURIComponent(SERVER)) && href.includes('#Intent;scheme=pendientes;package=app.productividad.widget;S.browser_fallback_url=' + encodeURIComponent('https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk') + ';end'));
+console.log('  ', href.slice(0, 120) + '…'); ok('botón «Conectar el widget» (Android): enlace intent con código, servidor, app y descarga DIRECTA del APK como respaldo');
+assert.strictEqual(await D.locator('.steps li').count(), 3); assert.strictEqual(await D.getAttribute('#widget-block a[download]', 'href'), 'https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk'); ok('pasos de instalación visibles y enlace «Solo descargar» directo al archivo');
+assert.strictEqual(await C.evaluate(() => /Android/i.test(navigator.userAgent)), false); await openSettings(C); assert((await C.locator('#widget-block').innerText()).includes('solo para Android')); await C.click('#close-settings'); ok('en un computador: explica que el widget es solo Android');
+
+// ---- borrar mis datos del servidor
+await openSettings(C); await C.click('[data-action=sync-erase]'); await C.click('#confirm-ok'); await C.waitForSelector('[data-action=sync-create]');
+assert.strictEqual(env.DB.raw.prepare("SELECT COUNT(*) c FROM records WHERE space=?").get(await C.evaluate(() => JSON.parse(localStorage.getItem('prod.sync')).space || 'x')).c, 0);
+await C.click('#close-settings'); assert((await tasks(C)).length > 0); ok('«Borrar mis datos del servidor»: se vacía el servidor y los datos locales se quedan');
+
+// ---- desvincular
+await openSettings(A); await A.click('[data-action=sync-unlink]'); await A.click('#confirm-ok'); await A.waitForSelector('[data-action=sync-create]'); await A.click('#close-settings'); assert((await tasks(A)).length > 0); ok('desvincular conserva los datos locales');
+console.log('errores de página:', errs);
+await b.close();
