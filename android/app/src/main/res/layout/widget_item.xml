@@ -18,7 +18,7 @@
         android:layout_height="wrap_content"
         android:paddingRight="10dp"
         android:text="●"
-        android:textColor="#FBBF24"
+        android:textColor="@color/prio_medium"
         android:textSize="14sp" />
 
     <LinearLayout
@@ -33,14 +33,14 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="2"
-            android:textColor="#F1F5F9"
+            android:textColor="@color/text"
             android:textSize="14sp" />
 
         <TextView
             android:id="@+id/task_due"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#94A3B8"
+            android:textColor="@color/muted"
             android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>

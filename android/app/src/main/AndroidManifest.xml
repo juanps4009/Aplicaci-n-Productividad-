@@ -13,7 +13,7 @@
         <activity
             android:name=".ConfigActivity"
             android:exported="true"
-            android:theme="@android:style/Theme.DeviceDefault.Light">
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -29,6 +29,13 @@
                 <data android:scheme="pendientes" android:host="link" />
             </intent-filter>
         </activity>
+
+        <!-- Puente invisible para abrir la app web en una tarea (ver OpenTaskActivity) -->
+        <activity
+            android:name=".OpenTaskActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <receiver
             android:name=".TaskWidgetProvider"

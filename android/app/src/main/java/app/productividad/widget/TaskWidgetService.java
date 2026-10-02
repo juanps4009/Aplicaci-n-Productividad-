@@ -2,7 +2,6 @@ package app.productividad.widget;
 
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 import android.widget.RemoteViews;
 import android.widget.RemoteViewsService;
 
@@ -47,7 +46,7 @@ public class TaskWidgetService extends RemoteViewsService {
             LocalDate today = TaskRepo.today();
 
             row.setTextViewText(R.id.task_title, t.text);
-            row.setTextColor(R.id.dot, "high".equals(t.priority) ? 0xFFF87171 : "low".equals(t.priority) ? 0xFF4ADE80 : 0xFFFBBF24);
+            row.setTextColor(R.id.dot, context.getColor("high".equals(t.priority) ? R.color.prio_high : "low".equals(t.priority) ? R.color.prio_low : R.color.prio_medium));
 
             String due = TaskLogic.dueLabel(t.due, today);
             if (due.isEmpty()) {
@@ -55,12 +54,12 @@ public class TaskWidgetService extends RemoteViewsService {
             } else {
                 row.setViewVisibility(R.id.task_due, android.view.View.VISIBLE);
                 row.setTextViewText(R.id.task_due, due);
-                row.setTextColor(R.id.task_due, TaskLogic.isOverdue(t.due, today) ? 0xFFF87171 : 0xFF94A3B8);
+                row.setTextColor(R.id.task_due, context.getColor(TaskLogic.isOverdue(t.due, today) ? R.color.danger : R.color.muted));
             }
 
-            // Al tocar: abrir la app en esta tarea (#task=ID lo entiende la app web)
+            // Al tocar: el id de la tarea viaja hasta OpenTaskActivity
             Intent fill = new Intent();
-            fill.setData(Uri.parse(TaskRepo.appUrl(context) + "#task=" + Uri.encode(t.id)));
+            fill.putExtra(OpenTaskActivity.EXTRA_TASK_ID, t.id);
             row.setOnClickFillInIntent(R.id.row, fill);
             return row;
         }

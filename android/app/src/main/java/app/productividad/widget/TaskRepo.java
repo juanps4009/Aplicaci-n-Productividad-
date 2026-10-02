@@ -25,9 +25,24 @@ final class TaskRepo {
         return c.getSharedPreferences("widget", Context.MODE_PRIVATE);
     }
 
-    static boolean isConfigured(Context c) {
+    /** ¿Existe un servidor de la app (config.js) dentro del APK? */
+    static boolean hasAppServer() {
+        return !ServerChoice.clean(BuildConfig.DEFAULT_SERVER).isEmpty();
+    }
+
+    /** Servidor que se usa ahora: el de la app o el propio, según lo elegido. */
+    static String server(Context c) {
         SharedPreferences p = prefs(c);
-        return !p.getString("server", "").isEmpty() && !p.getString("code", "").isEmpty();
+        boolean useDefault = p.getBoolean("useDefault", false);
+        return ServerChoice.resolve(useDefault, p.getString("server", ""), BuildConfig.DEFAULT_SERVER);
+    }
+
+    static boolean usesAppServer(Context c) {
+        return prefs(c).getBoolean("useDefault", false) && hasAppServer();
+    }
+
+    static boolean isConfigured(Context c) {
+        return !server(c).isEmpty() && !prefs(c).getString("code", "").isEmpty();
     }
 
     static String appUrl(Context c) {
@@ -36,15 +51,17 @@ final class TaskRepo {
     }
 
     /** Guarda los ajustes; si cambia el servidor o el código, borra lo descargado. */
-    static void save(Context c, String server, String code, String appUrl) {
+    static void save(Context c, boolean useDefault, String customServer, String code, String appUrl) {
         SharedPreferences p = prefs(c);
-        boolean changed = !server.equals(p.getString("server", "")) || !code.equals(p.getString("code", ""));
+        String before = server(c) + "|" + p.getString("code", "");
         SharedPreferences.Editor e = p.edit()
-                .putString("server", server)
+                .putBoolean("useDefault", useDefault)
+                .putString("server", ServerChoice.clean(customServer))
                 .putString("code", code)
                 .putString("appUrl", appUrl);
-        if (changed) e.remove("cache").remove("seq");
         e.apply();
+        String after = server(c) + "|" + code;
+        if (!before.equals(after)) p.edit().remove("cache").remove("seq").apply();
     }
 
     /** Descarga lo nuevo (si hay conexión) y devuelve las tareas pendientes ordenadas. */
@@ -53,7 +70,7 @@ final class TaskRepo {
         SharedPreferences p = prefs(c);
         TaskLogic.Cache cache = TaskLogic.Cache.fromJson(p.getString("cache", "{}"), p.getLong("seq", 0));
         try {
-            TaskLogic.sync(p.getString("server", ""), p.getString("code", ""), cache, new HttpTransport());
+            TaskLogic.sync(server(c), p.getString("code", ""), cache, new HttpTransport());
             p.edit().putString("cache", cache.toJson()).putLong("seq", cache.seq).apply();
         } catch (Exception e) {
             // sin conexión o servidor caído: se muestra lo último que se descargó

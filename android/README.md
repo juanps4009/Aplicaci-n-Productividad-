@@ -7,14 +7,17 @@ No es una segunda app para usar: es un complemento pequeño que lee tus tareas d
 
 ## Instalar (una sola vez)
 
-1. **En la app web** (en tu celular Android): Ajustes → *Widget de Android* → **Conectar el widget**.
-   - Si aún no tienes el widget, se abre la página de descarga: baja `pendientes-widget.apk` e instálalo (Android pedirá permiso para *instalar apps desconocidas* desde tu navegador; acéptalo solo para esto).
+1. **En la app web** (en tu celular Android): ⚙ Ajustes → *Widget de Android* → **Conectar el widget**.
+   - Si aún no tienes el widget, **se descarga solo el archivo** `pendientes-widget.apk` (sin pasar por la página de GitHub). Cuando termine, toca **Abrir** y luego **Instalar**. La primera vez Android pide permiso para *instalar apps desconocidas* desde tu navegador: acéptalo solo para esto.
    - Después vuelve a la app web y toca **Conectar el widget** otra vez: el widget recibe tu código y queda conectado, sin escribir nada.
 2. **Añadir el widget.** Mantén pulsado un espacio vacío de la pantalla de inicio → **Widgets** → **Pendientes (widget)** → arrástralo. Puedes cambiarle el tamaño.
 
-(Para conectarlo a mano: abre la app «Pendientes (widget)» y escribe el servidor y el código de Ajustes → Tus dispositivos.)
+**Conectarlo a mano** (por ejemplo si prefieres no usar el botón): abre la app **«Pendientes (widget)»**. Tiene dos opciones de servidor:
+- **Usar el servidor de la app** (recomendada, un toque, no escribes ninguna dirección).
+- **Usar mi propio servidor** (solo si creaste uno; aparece el campo de dirección).
+Luego copia tu código en la app web (Ajustes → Sincronizar) y toca **Pegar**.
 
-**Para el dueño:** el APK lo compila GitHub solo al cambiar la carpeta `android/` y lo deja en *Releases* (etiqueta `widget-latest`). Si el widget no se conecta, revisa que `widgetDownload` en `config.js` apunte a esa página.
+**Para el dueño:** el APK lo compila GitHub solo al cambiar la carpeta `android/` y lo deja en *Releases* (etiqueta `widget-latest`, archivo `pendientes-widget.apk`). El servidor «de la app» que usa el widget sale de `server` en `config.js` (se lee al compilar). El enlace directo de descarga está en `widgetDownload` de `config.js`.
 
 ## Cómo se usa
 
@@ -30,4 +33,5 @@ No es una segunda app para usar: es un complemento pequeño que lee tus tareas d
 - Para que al tocar una tarea se abra tu app instalada (y no una pestaña del navegador), en Android: *Ajustes → Apps → tu app → Abrir de forma predeterminada → Abrir enlaces compatibles*. Si se abre en el navegador igual funciona, con los mismos datos.
 - Para actualizar el widget en el futuro, instala el APK nuevo encima del anterior (la firma es la misma, no pierdes la configuración).
 - La llave de firma (`debug.keystore`) es de depuración y es pública a propósito: sirve solo para que las actualizaciones se instalen encima. No protege nada y no es un secreto.
-- Si cambias el código de sincronización o el servidor en la app, vuelve a abrir «Pendientes (widget)» y actualiza esos datos.
+- Si cambias el código de sincronización en la app, vuelve a tocar «Conectar el widget» (o abre «Pendientes (widget)» y pégalo).
+- **Si al añadirlo sale un error**, ya no debería: la versión 1.1 corrige un fallo de Android 14 con las plantillas de toque. Si aun así falla, dime el modelo del teléfono y la versión de Android.

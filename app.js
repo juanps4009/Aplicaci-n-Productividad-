@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.12.1-beta";
+const APP_VERSION = "0.13.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -437,9 +437,15 @@ function renderSettings() {
   ss.classList.toggle("rem-error", serverStatus.kind === "error");
   renderSyncBody();
   renderWidgetBlock();
+  $("#sync-badge").classList.toggle("hidden", !syncLinked());
 }
 
 $("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
+$("#open-sync").addEventListener("click", () => { // atajo desde la cabecera: abre Ajustes en la tarjeta de sincronización
+  renderSettings();
+  $("#settings").classList.remove("hidden");
+  $("#sync-card").scrollIntoView({ block: "start" });
+});
 $("#close-settings").addEventListener("click", () => $("#settings").classList.add("hidden"));
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") e.currentTarget.classList.add("hidden"); });
 
@@ -1033,8 +1039,12 @@ function renderWidgetBlock() {
     box.innerHTML = `
       <p class="muted text-xs">Muestra tus tareas pendientes con su prioridad en la pantalla de inicio. Al tocar una, se abre aquí.</p>
       <a class="btn-primary block py-3 text-center" id="widget-connect" href="${esc(widgetLink())}">Conectar el widget</a>
-      <p class="muted mt-1 text-xs">Si aún no lo tienes, se abrirá su descarga: instálalo y vuelve a tocar este botón. Después, mantén pulsada la pantalla de inicio → Widgets → Pendientes.</p>
-      <a class="muted text-xs" href="${esc(APP.widgetDownload || "#")}" target="_blank" rel="noopener">Descargar el widget</a>`;
+      <ol class="steps">
+        <li>Toca «Conectar el widget». Si aún no lo tienes, se descarga solo.</li>
+        <li>Al terminar, toca <b>Abrir</b> y luego <b>Instalar</b> (si Android lo pide, permite instalar desde este navegador).</li>
+        <li>Vuelve aquí y toca «Conectar el widget» otra vez. Después, mantén pulsada la pantalla de inicio → Widgets → Pendientes.</li>
+      </ol>
+      <a class="muted text-xs" href="${esc(APP.widgetDownload || "#")}" download="pendientes-widget.apk">Solo descargar el widget</a>`;
   }
 }
 

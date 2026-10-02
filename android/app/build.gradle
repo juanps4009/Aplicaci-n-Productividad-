@@ -2,6 +2,14 @@ plugins {
     id 'com.android.application'
 }
 
+// El servidor de la app se lee de ../../config.js (campo "server"), así hay un solo lugar donde cambiarlo.
+def defaultServer = ''
+def configJs = file('../../config.js')
+if (configJs.exists()) {
+    def m = (configJs.text =~ /server:\s*"([^"]*)"/)
+    if (m.find()) defaultServer = m.group(1).trim().replaceAll('/+$', '')
+}
+
 android {
     namespace 'app.productividad.widget'
     compileSdk 34
@@ -10,8 +18,13 @@ android {
         applicationId 'app.productividad.widget'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
+        buildConfigField 'String', 'DEFAULT_SERVER', "\"${defaultServer}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     // Llave de depuración fija (pública, sin secretos) para que cada versión nueva se pueda instalar encima de la anterior.

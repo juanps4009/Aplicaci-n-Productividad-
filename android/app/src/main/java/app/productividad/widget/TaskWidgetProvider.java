@@ -33,8 +33,9 @@ public class TaskWidgetProvider extends AppWidgetProvider {
         views.setRemoteAdapter(R.id.list, service);
         views.setEmptyView(R.id.list, R.id.empty);
 
-        // Tocar una tarea abre la app web en esa tarea (cada fila aporta su propia dirección)
-        PendingIntent template = PendingIntent.getActivity(context, 0, new Intent(Intent.ACTION_VIEW),
+        // Tocar una tarea abre OpenTaskActivity (explícita: Android 14 no permite plantillas mutables implícitas),
+        // que a su vez abre la app web en esa tarea. Cada fila aporta el id de su tarea.
+        PendingIntent template = PendingIntent.getActivity(context, 0, new Intent(context, OpenTaskActivity.class),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
         views.setPendingIntentTemplate(R.id.list, template);
 
