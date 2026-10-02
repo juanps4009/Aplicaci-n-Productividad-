@@ -20,9 +20,12 @@ if errorlevel 1 (
   set "ICON="
 )
 
-rem 2) Buscar Microsoft Edge o Google Chrome para abrir la app en ventana propia
+rem 2) Buscar Brave (preferido), Microsoft Edge o Google Chrome para abrir la app en ventana propia
 set "BROWSER="
-if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
+if exist "%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe" set "BROWSER=%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"
+if not defined BROWSER if exist "%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe" set "BROWSER=%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe"
+if not defined BROWSER if exist "%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe" set "BROWSER=%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"
+if not defined BROWSER if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"
 if not defined BROWSER if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "BROWSER=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
 if not defined BROWSER if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
 if not defined BROWSER if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
@@ -41,11 +44,14 @@ goto :fin
 
 :fallback
 echo  Creando un acceso directo normal (se abrira en tu navegador)...
+rem El escritorio puede estar en OneDrive: se le pregunta a Windows donde esta
+for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')"`) do set "DESK=%%D"
+if not defined DESK set "DESK=%USERPROFILE%\Desktop"
 (
   echo [InternetShortcut]
   echo URL=%URL%
-) > "%USERPROFILE%\Desktop\Pendientes.url"
-if exist "%USERPROFILE%\Desktop\Pendientes.url" (
+) > "%DESK%\Pendientes.url"
+if exist "%DESK%\Pendientes.url" (
   echo  Listo! En tu escritorio aparecio "Pendientes".
 ) else (
   echo  No pude crearlo. Abre este enlace y usa el icono "Instalar" del navegador:
