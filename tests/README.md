@@ -24,10 +24,12 @@ npm run e2e
 |---|---|
 | `rem-test.js` | `reminders.js`: cálculo de avisos (una vez, antes del vencimiento, diario, semanal, cada X h), por dispositivo |
 | `sync-test.js` | `sync.js`: códigos, sellos de cambio, borrados, fusión «gana lo más reciente» |
+| `rt-test.js` | `richtext.js`: texto con formato (tramos de negrita, colores, tamaño; limpieza de datos ajenos; HTML seguro) |
 | `sync-crypto-test.js` | Cifrado de extremo a extremo (AES-GCM + HKDF); imprime un vector que usa la prueba Java del widget |
 | `sw-test.js` | `sw.js`: descifrado de avisos push con la clave del dispositivo |
 | `worker-test.mjs` | `worker/index.js`: API, cifrado Web Push, firma VAPID, sincronización, límites (con D1 simulada) |
 | `sync-e2e.mjs` | Dos dispositivos + un Android simulado contra el código real del servidor |
+| `format-e2e.js` | Formato de texto en el navegador: tareas, notas, resúmenes, Enter/Retroceso, datos maliciosos |
 | `full4.js`, `full5.js` | Tareas, notas, resúmenes, recordatorios, tema |
 | `push-client.js`, `deeplink.js`, `legacy.js`, `mig.js`, `cfg.js` | Avisos push, enlace `#task=`, datos de versiones antiguas, migraciones, `config.js` |
 

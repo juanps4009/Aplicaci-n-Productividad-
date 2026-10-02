@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.13.1-beta";
+const APP_VERSION = "0.14.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -177,7 +177,7 @@ function taskHTML(t) {
   if (state.editingTask === t.id) {
     return `
     <li class="task-item editing" data-id="${t.id}" data-prio="${t.priority}">
-      <input class="field" data-edit="text" value="${esc(t.text)}" maxlength="200" aria-label="Texto de la tarea">
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-edit="text" data-max="200" data-ph="Texto de la tarea" aria-label="Texto de la tarea" spellcheck="true">${RT.toHTML(t.text, t.marks)}</div>
       <div class="flex flex-wrap items-center gap-2">
         <div class="prio-chips" role="radiogroup" data-edit="prio" data-value="${t.priority}">${prioChipsHTML(t.priority, "edit")}</div>
         <input type="date" class="field due-field" data-edit="due" value="${esc(t.due)}" aria-label="Fecha límite">
@@ -197,7 +197,7 @@ function taskHTML(t) {
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
       <span class="dot" aria-label="Prioridad ${PRIORITIES.find((p) => p.key === t.priority)?.label ?? ""}"></span>
       <div class="task-main">
-        <div class="task-text">${esc(t.text)}</div>
+        <div class="task-text">${RT.toHTML(t.text, t.marks)}</div>
         ${meta ? `<div class="due-label ${overdue ? "overdue" : ""}">${meta}</div>` : ""}
       </div>
       <button class="icon-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
@@ -281,16 +281,26 @@ function persistTasks() { commitTasks(); renderTasks(); }
 $("#task-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = $("#task-input");
-  const text = input.value.trim();
+  const { text, marks } = RT.trim(RE.getLine(input));
   if (!text) return;
-  state.tasks.unshift({
+  const task = {
     id: uid(), text, done: false, priority: state.newPriority,
     due: $("#task-due").value, reminders: [],
-  });
-  input.value = "";
+  };
+  if (marks.length) task.marks = marks;
+  state.tasks.unshift(task);
+  RE.clearLine(input);
   $("#task-due").value = "";
   persistTasks();
   runReminders();
+});
+
+/* Enter en un campo de texto de una línea: añadir tarea, guardar la edición o pasar al siguiente campo */
+document.addEventListener("rt-enter", (e) => {
+  const el = e.target;
+  if (el.id === "task-input") $("#task-form").requestSubmit();
+  else if (el.dataset.edit === "text") el.closest("li")?.querySelector("[data-action='save-task']")?.click();
+  else if (el.dataset.field === "title") $('#book-detail [data-field="author"]')?.focus();
 });
 
 $("#new-priority").addEventListener("click", (e) => {
@@ -375,10 +385,11 @@ $("#task-groups").addEventListener("click", (e) => {
       break;
     case "save-task": {
       if (!task) break;
-      const text = li.querySelector("[data-edit='text']").value.trim();
+      const { text, marks } = RT.trim(RE.getLine(li.querySelector("[data-edit='text']")));
       if (!text) break;
       const due = li.querySelector("[data-edit='due']").value;
-          task.text = text;
+      task.text = text;
+      if (marks.length) task.marks = marks; else delete task.marks;
       task.due = due;
       task.priority = li.querySelector("[data-edit='prio']").dataset.value;
       state.editingTask = null;
@@ -668,7 +679,7 @@ function renderAttention() {
   box.classList.toggle("hidden", !items.length);
   box.innerHTML = items.map(({ task, last }) => `
     <div class="att-row" data-task="${task.id}">
-      <div class="min-w-0"><b>🔔 ${esc(task.text)}</b><small>Sonó ${Reminders.fmtStamp(last)}</small></div>
+      <div class="min-w-0"><b>🔔 ${RT.toHTML(task.text, task.marks)}</b><small>Sonó ${Reminders.fmtStamp(last)}</small></div>
       <div class="att-actions">
         <button data-action="att-snooze" data-min="10">10 min</button>
         <button data-action="att-snooze" data-min="60">1 h</button>
@@ -1210,22 +1221,26 @@ function makeBlock(b) {
   el.className = "blk";
   el.dataset.type = b.type || "p";
   el.dataset.id = b.id || uid();
-  if (b.text) el.textContent = b.text;
+  if (b.text) el.innerHTML = RT.toHTML(b.text, b.marks);
   return el;
 }
 
+/* Un bloque guarda texto con formato: el texto de siempre más sus tramos (negrita, colores, tamaño) */
 function blockText(el) {
   let t = "";
   el.childNodes.forEach((n) => { if (n.nodeType === 3) t += n.nodeValue; else if (n.nodeName !== "BR") t += n.textContent; });
   return t;
 }
+const blockModel = (el) => RT.fromDOM(el);
+function setBlockModel(el, m) { el.innerHTML = RT.toHTML(m.text, m.marks); }
 
 function readDoc(root) {
-  return [...root.children].map((el) => ({
-    id: el.dataset.id || (el.dataset.id = uid()),
-    type: el.dataset.type || "p",
-    text: blockText(el),
-  }));
+  return [...root.children].map((el) => {
+    const m = blockModel(el);
+    const b = { id: el.dataset.id || (el.dataset.id = uid()), type: el.dataset.type || "p", text: m.text };
+    if (m.marks.length) b.marks = m.marks;
+    return b;
+  });
 }
 function trimDoc(doc) {
   const out = [...doc];
@@ -1235,7 +1250,7 @@ function trimDoc(doc) {
 
 function docViewHTML(doc) {
   return `<div class="doc">${doc.filter((b) => b.text.trim()).map((b) =>
-    `<div class="blk" data-type="${b.type}" data-id="${esc(b.id)}">${esc(b.text)}</div>`).join("")}</div>`;
+    `<div class="blk" data-type="${b.type}" data-id="${esc(b.id)}">${RT.toHTML(b.text, b.marks)}</div>`).join("")}</div>`;
 }
 
 function currentBlock(root) {
@@ -1287,10 +1302,10 @@ function normalizeRoot(root) {
       return;
     }
     if (n.innerHTML === "<br>") n.innerHTML = "";
-    else if (n.children.length) { // el navegador metió etiquetas: aplanar conservando el cursor
+    else if (!RT.isClean(n)) { // el navegador metió etiquetas ajenas: se vuelve a dibujar con nuestros tramos, conservando el cursor
       const inside = root.contains(getSelection().anchorNode) && n.contains(getSelection().anchorNode);
       const off = inside ? caretOffset(n) : 0;
-      n.textContent = blockText(n);
+      setBlockModel(n, blockModel(n));
       if (inside) setCaret(n, off);
     }
   });
@@ -1348,8 +1363,8 @@ function applySlash(i) {
   const { root, blk, start, items } = slash;
   const item = items[i];
   if (!item || !blk.isConnected) return closeSlash();
-  const text = blockText(blk), off = caretOffset(blk);
-  blk.textContent = text.slice(0, start) + text.slice(off);
+  const off = caretOffset(blk);
+  setBlockModel(blk, RT.replace(blockModel(blk), start, off, ""));
   blk.dataset.type = item.type;
   closeSlash();
   root.focus();
@@ -1367,11 +1382,12 @@ document.addEventListener("selectionchange", () => { if (slash.open) checkSlash(
 function splitBlock(root, blk) {
   const sel = getSelection();
   if (!sel.isCollapsed) { sel.deleteFromDocument(); normalizeRoot(root); blk = currentBlock(root) || blk; }
-  const text = blockText(blk), off = caretOffset(blk), type = blk.dataset.type;
+  const m = blockModel(blk), text = m.text, off = caretOffset(blk), type = blk.dataset.type;
   if (type === "ul" && !text) { blk.dataset.type = "p"; setCaret(blk, 0); return; }
   if (off === 0 && text) { blk.before(makeBlock({ type: type === "ul" ? "ul" : "p" })); setCaret(blk, 0); return; }
-  blk.textContent = text.slice(0, off);
-  const nb = makeBlock({ type: type === "ul" ? "ul" : "p", text: text.slice(off) });
+  setBlockModel(blk, RT.slice(m, 0, off));
+  const rest = RT.slice(m, off, text.length);
+  const nb = makeBlock({ type: type === "ul" ? "ul" : "p", text: rest.text, marks: rest.marks });
   blk.after(nb);
   setCaret(nb, 0);
   nb.scrollIntoView({ block: "nearest" });
@@ -1382,12 +1398,13 @@ function backspaceAtStart(blk) {
   const prev = blk.previousElementSibling;
   if (!prev) return;
   const len = blockText(prev).length;
-  prev.textContent = blockText(prev) + blockText(blk);
+  setBlockModel(prev, RT.concat(blockModel(prev), blockModel(blk)));
   blk.remove();
   setCaret(prev, len);
 }
 
-function mountEditor(root, blocks, onChange = () => {}) {
+/* opts.plain: sin menú "/" (cuadros de los resúmenes por bloques: solo párrafos, una idea por línea) */
+function mountEditor(root, blocks, onChange = () => {}, opts = {}) {
   root.innerHTML = "";
   (blocks.length ? blocks : [{ type: "p", text: "" }]).forEach((b) => root.appendChild(makeBlock(b)));
   refreshEmpty(root);
@@ -1407,7 +1424,7 @@ function mountEditor(root, blocks, onChange = () => {}) {
       changed();
     }
   });
-  root.addEventListener("input", () => { normalizeRoot(root); checkSlash(root); changed(); });
+  root.addEventListener("input", () => { normalizeRoot(root); if (!opts.plain) checkSlash(root); changed(); });
   root.addEventListener("keydown", (e) => {
     if (!slash.open || slash.root !== root) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1426,16 +1443,17 @@ function mountEditor(root, blocks, onChange = () => {}) {
     if (!sel.isCollapsed) { sel.deleteFromDocument(); normalizeRoot(root); }
     const blk = currentBlock(root);
     if (!blk) return;
-    const lines = txt.split("\n"), text = blockText(blk), off = caretOffset(blk);
+    const lines = txt.split("\n"), m = blockModel(blk), off = caretOffset(blk);
     if (lines.length === 1) {
-      blk.textContent = text.slice(0, off) + lines[0] + text.slice(off);
+      setBlockModel(blk, RT.replace(m, off, off, lines[0]));
       setCaret(blk, off + lines[0].length);
     } else {
-      const after = text.slice(off);
-      blk.textContent = text.slice(0, off) + lines[0];
+      const after = RT.slice(m, off, m.text.length);
+      setBlockModel(blk, RT.concat(RT.slice(m, 0, off), { text: lines[0], marks: [] }));
       let last = blk;
       lines.slice(1).forEach((l, i) => {
-        const nb = makeBlock({ type: "p", text: l + (i === lines.length - 2 ? after : "") });
+        const mm = i === lines.length - 2 ? RT.concat({ text: l, marks: [] }, after) : { text: l, marks: [] };
+        const nb = makeBlock({ type: "p", text: mm.text, marks: mm.marks });
         last.after(nb);
         last = nb;
       });
@@ -1457,7 +1475,7 @@ function saveNotes() {
 
 function openNotes(task) {
   state.notesTask = task.id;
-  $("#notes-title").textContent = task.text;
+  $("#notes-title").innerHTML = RT.toHTML(task.text, task.marks);
   const label = PRIORITIES.find((p) => p.key === task.priority)?.label ?? "";
   $("#notes-meta").innerHTML = `
     <span class="chip"><span class="dot" style="--prio:var(--${task.priority})"></span>Prioridad ${label.toLowerCase()}</span>
@@ -1510,11 +1528,11 @@ function bookPageViewHTML(b) {
   const boxes = SECTIONS.map((s) => `
     <div class="box ${s.cls}">
       <h3>${s.label}</h3>
-      ${b[s.key] ? `<p>${esc(b[s.key])}</p>` : `<p class="empty">Sin contenido</p>`}
+      ${b[s.key] ? `<p>${RT.toHTML(b[s.key], b[s.key + "Marks"], { nl: true })}</p>` : `<p class="empty">Sin contenido</p>`}
     </div>`).join("");
   return `
-    <h2 class="page-title">${esc(b.title) || "Sin título"}</h2>
-    <p class="muted book-page-author">${esc(b.author) || "Autor desconocido"}</p>
+    <h2 class="page-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</h2>
+    <p class="muted book-page-author">${RT.toHTML(b.author, b.authorMarks) || "Autor desconocido"}</p>
     ${b.template === "free" ? freeViewHTML(b) : `<div class="grid-gap">${boxes}</div>`}`;
 }
 
@@ -1523,14 +1541,14 @@ function bookEditHTML(d) {
   const editor = free
     ? `<div class="editor-box"><div class="editor doc" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Contenido del resumen"></div></div>`
     : SECTIONS.map((s) => `
-    <label class="box ${s.cls} block">
+    <div class="box ${s.cls} block">
       <h3>${s.label}</h3>
-      <textarea class="field" rows="4" data-field="${s.key}" placeholder="${esc(s.hint)}">${esc(d[s.key])}</textarea>
-    </label>`).join("");
+      <div class="field editor doc sec-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(s.label)}" data-section="${s.key}"></div>
+    </div>`).join("");
   return `
     <div class="grid-gap">
-      <input class="field" data-field="title" value="${esc(d.title)}" placeholder="Título del libro" aria-label="Título">
-      <input class="field" data-field="author" value="${esc(d.author)}" placeholder="Autor" aria-label="Autor">
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="title" data-max="200" data-ph="Título del libro" aria-label="Título">${RT.toHTML(d.title, d.titleMarks)}</div>
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="author" data-max="200" data-ph="Autor" aria-label="Autor">${RT.toHTML(d.author, d.authorMarks)}</div>
       <div>
         <p class="setting-label">Plantilla</p>
         <div class="seg" role="radiogroup" aria-label="Plantilla del resumen">
@@ -1556,8 +1574,8 @@ function renderBookList() {
   $("#book-list").innerHTML = state.books.map((b) => `
     <article class="book-card" data-book="${b.id}">
       <button class="book-open" data-action="open">
-        <span class="book-row-title">${esc(b.title) || "Sin título"}</span>
-        <span class="book-row-author">${esc(b.author)}</span>
+        <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
+        <span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>
       </button>
     </article>`).join("");
   $("#book-empty").classList.toggle("hidden", state.books.length > 0);
@@ -1575,8 +1593,14 @@ function renderBookPage() {
   $("#book-bar-actions").classList.toggle("hidden", editing);
   $("#book-bar-label").textContent = editing ? "Editando" : "";
   $("#book-detail").innerHTML = editing ? bookEditHTML(state.drafts.get(book.id)) : bookPageViewHTML(book);
-  const ed = $("#book-detail .editor");
-  if (ed) mountEditor(ed, state.drafts.get(book.id).doc);
+  const draft = state.drafts.get(book.id);
+  const ed = $("#book-detail .editor:not(.sec-editor)");
+  if (ed) mountEditor(ed, draft.doc);
+  $$("#book-detail .sec-editor").forEach((el) => { // los cuadros por bloques: una línea = un bloque de texto
+    const s = SECTIONS.find((x) => x.key === el.dataset.section);
+    el.style.setProperty("--ph", JSON.stringify(s.hint));
+    mountEditor(el, linesToBlocks(draft[s.key], draft[s.key + "Marks"]), () => {}, { plain: true });
+  });
   updateActiveDots();
 }
 
@@ -1619,9 +1643,39 @@ function endEdit(id) { state.editing.delete(id); state.drafts.delete(id); schedu
 
 /* Vuelca lo escrito en pantalla al borrador (antes de re-renderizar) */
 function syncDraft(card, d) {
-  card.querySelectorAll("[data-field]").forEach((el) => { d[el.dataset.field] = el.value; });
-  const ed = card.querySelector(".editor");
+  card.querySelectorAll(".rt-line[data-field]").forEach((el) => {
+    const m = RE.getLine(el);
+    d[el.dataset.field] = m.text;
+    d[el.dataset.field + "Marks"] = m.marks;
+  });
+  card.querySelectorAll(".sec-editor").forEach((el) => {
+    const m = blocksToText(readDoc(el));
+    d[el.dataset.section] = m.text;
+    d[el.dataset.section + "Marks"] = m.marks;
+  });
+  const ed = card.querySelector(".editor:not(.sec-editor)");
   if (ed) d.doc = readDoc(ed);
+}
+
+/* Los cuadros por bloques se guardan como texto con saltos de línea (+ tramos de formato); al editar, cada línea es un bloque */
+function linesToBlocks(text, marks) {
+  const m = { text: String(text || ""), marks };
+  const out = [];
+  let pos = 0;
+  m.text.split("\n").forEach((line) => {
+    const part = RT.slice(m, pos, pos + line.length);
+    out.push({ type: "p", text: part.text, marks: part.marks });
+    pos += line.length + 1;
+  });
+  return out;
+}
+function blocksToText(blocks) {
+  let m = { text: "", marks: [] };
+  blocks.forEach((b, i) => {
+    if (i) m = RT.concat(m, { text: "\n", marks: [] });
+    m = RT.concat(m, { text: b.text, marks: b.marks || [] });
+  });
+  return m;
 }
 
 $("#new-book").addEventListener("click", () => {
@@ -1680,7 +1734,12 @@ function onBookClick(e) {
       break;
     case "save": {
       syncDraft(card, d);
-      ["title", "author", ...SECTIONS.map((s) => s.key)].forEach((k) => { d[k] = d[k].trim(); });
+      ["title", "author", ...SECTIONS.map((s) => s.key)].forEach((k) => {
+        const m = RT.trim({ text: d[k] || "", marks: d[k + "Marks"] });
+        d[k] = m.text;
+        if (m.marks.length) d[k + "Marks"] = m.marks;
+        else { delete d[k + "Marks"]; delete book[k + "Marks"]; }
+      });
       d.doc = trimDoc(d.doc);
       delete d.isNew;
       delete book.isNew;
