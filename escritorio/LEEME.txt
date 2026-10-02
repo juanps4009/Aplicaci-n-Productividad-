@@ -1,0 +1,17 @@
+ACCESO DIRECTO DE PENDIENTES EN EL ESCRITORIO (Windows)
+
+OPCION A - Un doble clic (recomendada)
+  1. Descarga "Crear-acceso-directo.cmd" y abrelo con doble clic.
+  2. Si Windows muestra "Windows protegio tu PC" (SmartScreen): pulsa "Mas informacion" y luego "Ejecutar de todas formas".
+     Es normal con cualquier archivo descargado. El archivo es de texto: puedes abrirlo con el Bloc de notas y leerlo antes.
+  3. Aparece "Pendientes" en tu escritorio. Se abre en su propia ventana, sin pestanas, con el icono de la app.
+
+OPCION B - Sin scripts
+  Descarga "Pendientes.url" y colocalo en el escritorio. Se abre en tu navegador normal.
+
+OPCION C - Instalarla desde el navegador
+  Chrome: abre https://juanps4009.github.io/Aplicaci-n-Productividad-/ , pulsa el icono "Instalar" de la barra de direcciones
+          y luego, en chrome://apps, clic derecho sobre la app -> "Crear acceso directo".
+  Edge:   menu ... -> Aplicaciones -> "Instalar este sitio como una aplicacion" y marca "Crear acceso directo en el escritorio".
+
+Para quitarlo: borra "Pendientes" del escritorio y la carpeta %LOCALAPPDATA%\Pendientes.
