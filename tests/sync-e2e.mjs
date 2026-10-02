@@ -27,7 +27,8 @@ async function device(name, scheme = 'light') {
 }
 const ok = (n) => console.log('OK', n);
 const tasks = (p) => p.$$eval('.task-item .task-text', e => e.map(x => x.textContent));
-const openSettings = async (p) => { if (await p.locator('#settings.hidden').count()) await p.click('#open-settings'); };
+const openSyncCard = (p) => p.evaluate(() => { document.querySelector('#sync-card').open = true; });
+const openSettings = async (p) => { if (await p.locator('#settings.hidden').count()) await p.click('#open-settings'); await openSyncCard(p); };
 const addTask = async (p, text) => { await p.fill('#task-input', text); await p.click('#task-form button[type=submit]'); };
 const syncNow = async (p) => { await p.click('[data-action=sync-now]'); await p.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText), null, { timeout: 5000 }); await p.waitForTimeout(150); };
 
@@ -41,13 +42,14 @@ await A.reload(); assert.strictEqual(await A.evaluate(() => document.documentEle
 ok('interruptor de tema (sin "Automático", persiste, toma el tema del sistema la 1ª vez)');
 await A.click('#close-settings');
 
-// ---- la sincronización es lo primero que se ve y hay un atajo en la cabecera
+// ---- Ajustes: primero las opciones (modo oscuro...), luego la tarjeta de sincronizacion plegable, luego el widget; hay un atajo en la cabecera
 assert.strictEqual(await A.locator('#open-sync:visible').count(), 1);
-await A.click('#open-sync');
-const posSync = await A.evaluate(() => document.querySelector('#sync-card').getBoundingClientRect().top - document.querySelector('.sheet').getBoundingClientRect().top);
-const posTheme = await A.evaluate(() => document.querySelector('#theme-switch').getBoundingClientRect().top - document.querySelector('.sheet').getBoundingClientRect().top);
-assert(posSync < posTheme && posSync < 120); assert(await A.locator('#sync-card [data-action=sync-create]').isVisible()); ok('icono de nube en la cabecera: abre Ajustes con «Crear código nuevo» arriba y visible');
-await A.screenshot({ path: '/tmp/v13-sync-card.png' }); await A.click('#close-settings');
+await A.click('#open-settings');
+assert.strictEqual(await A.locator('#sync-card').evaluate(e => e.open), false); assert.strictEqual(await A.locator('#sync-card [data-action=sync-create]').isVisible(), false);
+const ys = await A.evaluate(() => ['#theme-switch', '#sync-card', '#widget-block'].map((s) => document.querySelector(s).getBoundingClientRect().top));
+assert(ys[0] < ys[1] && ys[1] < ys[2]); await A.click('#sync-card > summary'); assert(await A.locator('#sync-card [data-action=sync-create]').isVisible()); await A.click('#sync-card > summary'); assert.strictEqual(await A.locator('#sync-card').evaluate(e => e.open), false);
+await A.click('#close-settings'); await A.click('#open-sync');
+assert(await A.locator('#sync-card [data-action=sync-create]').isVisible()); ok('Ajustes: modo oscuro arriba, sincronizacion plegable con flecha antes del widget; el icono de nube la abre con crear codigo visible');await A.screenshot({ path: '/tmp/v13-sync-card.png' }); await A.click('#close-settings');
 assert.strictEqual(await A.locator('#sync-badge.hidden').count(), 1);
 // ---- A crea datos previos y se conecta
 await addTask(A, 'Tarea A1'); await addTask(A, 'Tarea A2');
@@ -107,7 +109,7 @@ const AND = await b.newContext({ serviceWorkers: 'block', viewport: { width: 390
 await D.route('**/config.js', r => r.fulfill({ contentType: 'text/javascript', body: 'window.APP_CONFIG = { server: "' + SERVER + '", widgetDownload: "https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk", widgetScheme: "pendientes", widgetPackage: "app.productividad.widget" };' }));
 await D.route(SERVER + '/**', async (route) => { const req = route.request(); const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': '*' };
   if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors }); const r = await worker.fetch(new Request(req.url(), { method: req.method(), body: req.postData() || undefined }), env); return route.fulfill({ status: r.status, headers: { ...cors, 'content-type': r.headers.get('content-type') || 'text/plain' }, body: await r.text() }); });
-await D.goto('http://localhost:8123/'); await D.click('#open-settings');
+await D.goto('http://localhost:8123/'); await D.click('#open-settings'); await openSyncCard(D);
 assert((await D.locator('#widget-block').innerText()).includes('Primero crea tu código')); ok('widget: antes de sincronizar pide crear el código');
 await D.click('[data-action=sync-create]'); await D.waitForSelector('#widget-connect');
 const href = await D.getAttribute('#widget-connect', 'href'); const codeD = (await D.locator('.code-box').innerText()).trim().replace(/-/g, '');

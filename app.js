@@ -429,7 +429,7 @@ function renderSettings() {
 
   if (document.activeElement !== $("#server-url")) $("#server-url").value = state.settings.serverUrl || "";
   const adv = $("#server-adv");
-  if (!APP.server) adv.open = true; // sin servidor de la app, esta es la única forma de conectarse
+  if (!APP.server) { adv.open = true; $("#sync-card").open = true; } // sin servidor de la app, esta es la única forma de conectarse
   $("#server-connect").textContent = state.settings.serverUrl ? "Guardar dirección" : "Conectar";
   $("#server-reset").classList.toggle("hidden", !(state.settings.serverUrl && APP.server));
   const ss = $("#server-status");
@@ -443,6 +443,7 @@ function renderSettings() {
 $("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
 $("#open-sync").addEventListener("click", () => { // atajo desde la cabecera: abre Ajustes en la tarjeta de sincronización
   renderSettings();
+  $("#sync-card").open = true;
   $("#settings").classList.remove("hidden");
   $("#sync-card").scrollIntoView({ block: "start" });
 });
@@ -1186,6 +1187,7 @@ function handleLinkHash() {
     if (!ok) return;
     if (serverUrl() !== server) { state.settings.serverUrl = server; save(KEYS.settings, state.settings); } // solo si es otro servidor
     renderSettings();
+    $("#sync-card").open = true;
     $("#settings").classList.remove("hidden");
     await joinSpace(code);
   });

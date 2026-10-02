@@ -361,3 +361,9 @@ a.btn-primary { display: block; }
 .sync-card .field { background: var(--surface); }
 .steps { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--muted); font-size: 0.8rem; list-style: decimal; }
 .steps li { margin: 0.2rem 0; }
+.sync-summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; cursor: pointer; min-height: 44px; }
+.sync-summary::-webkit-details-marker { display: none; }
+.sync-summary .sync-title { margin: 0; }
+.sync-summary .chevron { font-size: 1.1rem; color: var(--muted); }
+.sync-card:not([open]) > .sync-summary .chevron { transform: rotate(-90deg); }
+.sync-card[open] > .sync-summary { margin-bottom: 0.25rem; }

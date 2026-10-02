@@ -78,20 +78,6 @@
         <button id="close-settings" class="icon-btn" aria-label="Cerrar">✕</button>
       </div>
 
-      <section id="sync-card" class="sync-card" aria-label="Sincronizar mis dispositivos">
-        <h3 class="sync-title">Sincronizar mis dispositivos</h3>
-        <p class="muted text-sm">Usa el mismo código en tu celular y tu computador. Tus datos se cifran en tu dispositivo: nadie más puede leerlos.</p>
-        <div id="sync-body"></div>
-      </section>
-      <details id="server-adv" class="setting adv">
-        <summary>Servidor propio (avanzado)</summary>
-        <label class="setting-label" for="server-url">Dirección de tu servidor</label>
-        <input id="server-url" class="field" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
-        <button id="server-connect" class="btn-secondary mt-2 w-full py-3">Conectar</button>
-        <button id="server-reset" class="btn-secondary mt-2 w-full py-3 hidden">Volver al servidor de la app</button>
-        <p id="server-status" class="muted mt-1 text-xs" role="status"></p>
-      </details>
-
       <div class="setting switch-row">
         <p class="setting-label">Modo oscuro</p>
         <button id="theme-switch" class="switch" role="switch" aria-checked="false" aria-label="Modo oscuro"><span></span></button>
@@ -125,6 +111,22 @@
       </div>
       <p id="push-status" class="muted text-xs" role="status"></p>
 
+      <details id="sync-card" class="sync-card" aria-label="Sincronizar mis dispositivos">
+        <summary class="sync-summary">
+          <span class="sync-title">Sincronizar mis dispositivos</span>
+          <span class="chevron" aria-hidden="true">▾</span>
+        </summary>
+        <p class="muted text-sm">Usa el mismo código en tu celular y tu computador. Tus datos se cifran en tu dispositivo: nadie más puede leerlos.</p>
+        <div id="sync-body"></div>
+        <details id="server-adv" class="setting adv">
+          <summary>Servidor propio (avanzado)</summary>
+          <label class="setting-label" for="server-url">Dirección de tu servidor</label>
+          <input id="server-url" class="field" type="url" inputmode="url" autocomplete="off" placeholder="https://avisos.tu-usuario.workers.dev">
+          <button id="server-connect" class="btn-secondary mt-2 w-full py-3">Conectar</button>
+          <button id="server-reset" class="btn-secondary mt-2 w-full py-3 hidden">Volver al servidor de la app</button>
+          <p id="server-status" class="muted mt-1 text-xs" role="status"></p>
+        </details>
+      </details>
       <h3 class="settings-title">Widget de Android</h3>
       <div class="setting" id="widget-block"></div>
 
