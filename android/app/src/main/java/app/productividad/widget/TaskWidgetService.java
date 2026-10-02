@@ -1,7 +1,9 @@
 package app.productividad.widget;
 
+import android.appwidget.AppWidgetManager;
 import android.content.Context;
 import android.content.Intent;
+import android.view.View;
 import android.widget.RemoteViews;
 import android.widget.RemoteViewsService;
 
@@ -13,15 +15,24 @@ public class TaskWidgetService extends RemoteViewsService {
 
     @Override
     public RemoteViewsFactory onGetViewFactory(Intent intent) {
-        return new Factory(getApplicationContext());
+        return new Factory(getApplicationContext(),
+                intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID),
+                intent.getBooleanExtra(TaskWidgetProvider.EXTRA_COMPACT, false),
+                intent.getBooleanExtra(TaskWidgetProvider.EXTRA_SHOW_DUE, true));
     }
 
     private static final class Factory implements RemoteViewsFactory {
         private final Context context;
+        private final int appWidgetId;
+        private final boolean compact;
+        private final boolean showDue;
         private List<TaskLogic.Task> tasks = new ArrayList<>();
 
-        Factory(Context context) {
+        Factory(Context context, int appWidgetId, boolean compact, boolean showDue) {
             this.context = context;
+            this.appWidgetId = appWidgetId;
+            this.compact = compact;
+            this.showDue = showDue;
         }
 
         @Override public void onCreate() {}
@@ -29,6 +40,10 @@ public class TaskWidgetService extends RemoteViewsService {
         /** El sistema lo llama en un hilo aparte: aquí sí se puede usar la red. */
         @Override public void onDataSetChanged() {
             tasks = TaskRepo.load(context);
+            // El contador de la cabecera (solo existe en el diseño compacto) se corrige con lo recién descargado
+            if (compact && appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                TaskWidgetProvider.updateCount(context, appWidgetId, tasks);
+            }
         }
 
         @Override public void onDestroy() {
@@ -40,7 +55,7 @@ public class TaskWidgetService extends RemoteViewsService {
         }
 
         @Override public RemoteViews getViewAt(int position) {
-            RemoteViews row = new RemoteViews(context.getPackageName(), R.layout.widget_item);
+            RemoteViews row = new RemoteViews(context.getPackageName(), compact ? R.layout.widget_item_compact : R.layout.widget_item);
             if (position < 0 || position >= tasks.size()) return row;
             TaskLogic.Task t = tasks.get(position);
             LocalDate today = TaskRepo.today();
@@ -49,10 +64,10 @@ public class TaskWidgetService extends RemoteViewsService {
             row.setTextColor(R.id.dot, context.getColor("high".equals(t.priority) ? R.color.prio_high : "low".equals(t.priority) ? R.color.prio_low : R.color.prio_medium));
 
             String due = TaskLogic.dueLabel(t.due, today);
-            if (due.isEmpty()) {
-                row.setViewVisibility(R.id.task_due, android.view.View.GONE);
+            if (due.isEmpty() || (compact && !showDue)) {
+                row.setViewVisibility(R.id.task_due, View.GONE);
             } else {
-                row.setViewVisibility(R.id.task_due, android.view.View.VISIBLE);
+                row.setViewVisibility(R.id.task_due, View.VISIBLE);
                 row.setTextViewText(R.id.task_due, due);
                 row.setTextColor(R.id.task_due, context.getColor(TaskLogic.isOverdue(t.due, today) ? R.color.danger : R.color.muted));
             }

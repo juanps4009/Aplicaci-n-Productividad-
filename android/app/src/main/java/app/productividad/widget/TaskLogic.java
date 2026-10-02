@@ -188,4 +188,27 @@ final class TaskLogic {
     static boolean isOverdue(String due, LocalDate today) {
         try { return !due.isEmpty() && LocalDate.parse(due).isBefore(today); } catch (Exception e) { return false; }
     }
+
+    // Tamaños del widget. Android da n celdas ≈ 70·n − 30 dp: 2 celdas = 110, 3 = 180, 4 = 250.
+    /** Alto (dp) desde el que cabe el diseño grande (3 celdas = 180 dp; se deja margen porque cada launcher redondea distinto). */
+    static final int FULL_MIN_HEIGHT_DP = 170;
+    /** Ancho (dp) desde el que cabe el diseño grande y la fecha en el compacto (4x2). */
+    static final int WIDE_MIN_WIDTH_DP = 200;
+
+    /** ¿Se dibuja el diseño compacto (2x2, 4x2…)? Si el launcher no informa el tamaño (0), se usa el grande. */
+    static boolean isCompact(int widthDp, int heightDp) {
+        if (widthDp <= 0 || heightDp <= 0) return false;
+        return heightDp < FULL_MIN_HEIGHT_DP || widthDp < WIDE_MIN_WIDTH_DP;
+    }
+
+    /** En el compacto, la fecha de cada tarea solo se muestra si hay ancho (4x2); en 2x2 solo el título. */
+    static boolean showDue(int widthDp) {
+        return widthDp <= 0 || widthDp >= WIDE_MIN_WIDTH_DP;
+    }
+
+    static int overdueCount(List<Task> tasks, LocalDate today) {
+        int n = 0;
+        for (Task t : tasks) if (isOverdue(t.due, today)) n++;
+        return n;
+    }
 }

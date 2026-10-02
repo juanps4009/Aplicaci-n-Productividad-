@@ -33,6 +33,7 @@ Preferencias del dueño (respétalas): todo **gratis**; interfaz **simple y limp
 - **`worker/index.js`**: `GET /` (texto «…funcionando ✓»), `GET /vapid`, `PUT /sync` y `POST /unsync` (avisos push, cifrados con una clave por dispositivo guardada en IndexedDB para que `sw.js` los descifre), `POST /space/sync` (sincronización, devuelve cambios con `seq`), `POST /space/delete`. Cron cada minuto envía los push (Web Push RFC 8291 + VAPID, claves generadas solas en D1). Límites por IP/código/tamaño. Los datos sincronizados llegan **cifrados**: el servidor no puede leerlos.
 - **`sw.js`**: caché «red primero» (sube `CACHE` si cambia la lista de archivos), `importScripts("sync.js")`, manejo de `push` y `notificationclick`.
 - **Android (`android/`)**: widget en Java sin dependencias. Lee `/space/sync`, descifra con `TaskCrypto`, lista pendientes ordenadas por fecha y prioridad; al tocar una tarea abre `<app>#task=ID` (la app lo entiende: `focusTask`). Pantalla de ajustes con dos tarjetas: «usar el servidor de la app» o «mi propio servidor» + pegar código. La app web lo conecta con un enlace `intent://link?code=…#Intent;scheme=pendientes;…;S.browser_fallback_url=<APK directo>;end`.
+  Desde la 1.2 es **un solo widget adaptable** (mín. 2x2): `TaskWidgetProvider.update` lee el tamaño (`OPTION_APPWIDGET_MIN_WIDTH/HEIGHT`) y `TaskLogic.isCompact` elige entre `widget.xml` (grande) y `widget_compact.xml` (2x2, 4x2; cabecera «Pendientes · N»); la lista usa `widget_item` o `widget_item_compact` según extras del servicio. Se redibuja en `onAppWidgetOptionsChanged`.
 - **Windows**: `escritorio/Crear-acceso-directo.cmd` (+ `.url`, `LEEME.txt`, `icons/icon.ico`).
 
 ## 4. Estado actual (versión `0.13.0-beta`, ver `APP_VERSION` en `app.js`)
@@ -42,7 +43,7 @@ Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes, r
 **Nunca se probó en el mundo real** (el entorno en la nube no podía): 
 - El Worker desplegado en Cloudflare con tráfico real (el dueño dice que lo creó; **no está confirmado que pegara la última versión de `worker/index.js`** — pídele que abra la dirección y compruebe, y que vuelva a pegar el archivo si hace falta).
 - Notificaciones push reales en un celular.
-- El widget en un Android real. El último error reportado (Android 14: «error al añadir el widget») se atribuyó a un `PendingIntent` mutable implícito y se corrigió con `OpenTaskActivity`; **falta que el dueño confirme que ya se añade bien**.
+- El widget en un Android real. El último error reportado (Android 14: «error al añadir el widget») se atribuyó a un `PendingIntent` mutable implícito y se corrigió con `OpenTaskActivity`; **el dueño confirmó que el widget (1.1) funciona** (2 oct 2026). La 1.2 (tamaños adaptables) hay que confirmarla en el celular: que se estire/achique bien entre 2x2, 4x2 y grande.
 - Que «Conectar el widget» (enlace `intent://`) descargue el APK y luego conecte con un toque.
 - Que `Crear-acceso-directo.cmd` funcione en su Windows (no se pudo ejecutar).
 

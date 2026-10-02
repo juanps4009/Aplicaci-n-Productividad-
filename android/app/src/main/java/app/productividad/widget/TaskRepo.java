@@ -78,6 +78,13 @@ final class TaskRepo {
         return TaskLogic.visible(cache);
     }
 
+    /** Las tareas ya descargadas, sin usar la red (para pintar el contador al instante). */
+    static List<TaskLogic.Task> cachedTasks(Context c) {
+        if (!isConfigured(c)) return new ArrayList<>();
+        SharedPreferences p = prefs(c);
+        return TaskLogic.visible(TaskLogic.Cache.fromJson(p.getString("cache", "{}"), p.getLong("seq", 0)));
+    }
+
     static LocalDate today() {
         return LocalDate.now();
     }

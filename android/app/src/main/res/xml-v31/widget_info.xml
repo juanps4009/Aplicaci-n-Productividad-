@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Un solo widget que se adapta: desde 2x2 (110 dp) hasta grande. El diseño lo elige TaskWidgetProvider según el tamaño. -->
+<!-- Android 12+: al añadirlo se coloca de 4x3 (como antes) y se puede achicar hasta 2x2 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:configure="app.productividad.widget.ConfigActivity"
     android:description="@string/widget_description"
@@ -9,6 +9,8 @@
     android:minResizeWidth="110dp"
     android:minWidth="110dp"
     android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="3"
+    android:targetCellWidth="4"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
     android:widgetFeatures="reconfigurable|configuration_optional" />

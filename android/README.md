@@ -12,6 +12,11 @@ No es una segunda app para usar: es un complemento pequeño que lee tus tareas d
    - Después vuelve a la app web y toca **Conectar el widget** otra vez: el widget recibe tu código y queda conectado, sin escribir nada.
 2. **Añadir el widget.** Mantén pulsado un espacio vacío de la pantalla de inicio → **Widgets** → **Pendientes (widget)** → arrástralo. Puedes cambiarle el tamaño.
 
+**Tamaños.** Es un solo widget que se adapta al tamaño que le des (desde la versión 1.2): mantenlo pulsado y arrastra sus bordes.
+- **Grande** (de 4x3 en adelante): título, ↻ y tareas de dos líneas con su fecha.
+- **Compacto** (2x2, 4x2 y similares): arriba «Pendientes · N» (el número se pone en rojo si hay vencidas) y debajo las tareas en una línea. En 4x2 se ve también la fecha; en 2x2 solo el título.
+En Android 12 o más nuevo se añade de 4x3 y se puede achicar a 2x2; en versiones anteriores se añade de 2x2 y se puede agrandar.
+
 **Conectarlo a mano** (por ejemplo si prefieres no usar el botón): abre la app **«Pendientes (widget)»**. Tiene dos opciones de servidor:
 - **Usar el servidor de la app** (recomendada, un toque, no escribes ninguna dirección).
 - **Usar mi propio servidor** (solo si creaste uno; aparece el campo de dirección).
