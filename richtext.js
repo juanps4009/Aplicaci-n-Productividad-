@@ -122,6 +122,24 @@
     return b <= a ? { text: "", marks: [] } : model(text.slice(a, b), styles.slice(a, b));
   }
 
+  /* Estilo del carácter i (o null) */
+  function styleAt(m, i) {
+    const { styles } = norm(m);
+    return styles[i] || null;
+  }
+
+  /* Aplica un cambio (mismo formato que en `format`) a un estilo suelto: sirve para «lo próximo que escriba» */
+  function patchStyle(st, patch) {
+    const out = { ...(st || {}) };
+    if ("b" in patch) { if (patch.b) out.b = 1; else delete out.b; }
+    COLOR_KEYS.forEach((k) => { if (k in patch) { if (patch[k]) out[k] = patch[k]; else delete out[k]; } });
+    if ("z" in patch) { if (patch.z) out.z = patch.z; else delete out.z; }
+    return cleanStyle(out);
+  }
+
+  /* Alineación de un párrafo: solo "center" o "right" (izquierda = sin valor) */
+  const cleanAlign = (a) => (a === "center" || a === "right" ? a : "");
+
   /* Palabra alrededor de la posición (para dar formato sin seleccionar). Devuelve [from, to] o null. */
   function wordAt(text, pos) {
     const isWord = (ch) => /[\p{L}\p{N}_]/u.test(ch);
@@ -144,6 +162,12 @@
     return p.join(";");
   }
   const attrs = (st) => ["b", "c", "h", "u", "z"].filter((k) => st[k] !== undefined).map((k) => ` data-${k}="${st[k]}"`).join("");
+
+  /* Un tramo con ese estilo alrededor de HTML ya escapado (sin estilo devuelve el HTML tal cual) */
+  function wrap(st, html) {
+    st = cleanStyle(st);
+    return st ? `<span class="rt"${attrs(st)} style="${css(st)}">${html}</span>` : html;
+  }
 
   /* HTML seguro de un texto con formato. Con { nl: true } los saltos de línea se muestran como <br>. */
   function toHTML(text, marks, opts) {
@@ -202,7 +226,7 @@
     { z: -1, name: "Pequeño" }, { z: 0, name: "Normal" }, { z: 1, name: "Grande" }, { z: 2, name: "Enorme" },
   ];
 
-  const RT = { clean, slice, concat, replace, format, every, trim, wordAt, toHTML, fromDOM, isClean, COLORS, SIZE_STEPS, cleanStyle };
+  const RT = { clean, slice, concat, replace, format, every, trim, wordAt, styleAt, patchStyle, cleanAlign, wrap, toHTML, fromDOM, isClean, COLORS, SIZE_STEPS, cleanStyle };
   if (typeof module !== "undefined" && module.exports) module.exports = RT;
   else root.RT = RT;
 })(typeof window !== "undefined" ? window : globalThis);

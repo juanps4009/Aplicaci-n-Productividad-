@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.15.0-beta";
+const APP_VERSION = "0.16.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -94,6 +94,9 @@ if (state.sync.dirty && typeof state.sync.dirty === "object") tracker.dirty = st
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
+/* Atributo de alineación (centro/derecha) para un párrafo o campo; nada si va a la izquierda */
+const alignAttr = (a) => (RT.cleanAlign(a) ? ` data-align="${RT.cleanAlign(a)}"` : "");
+
 function esc(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -179,7 +182,7 @@ function taskHTML(t) {
   if (state.editingTask === t.id) {
     return `
     <li class="task-item editing" data-id="${t.id}" data-prio="${t.priority}">
-      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-edit="text" data-max="200" data-ph="Texto de la tarea" aria-label="Texto de la tarea" spellcheck="true">${RT.toHTML(t.text, t.marks)}</div>
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-edit="text" data-max="200" data-ph="Texto de la tarea" aria-label="Texto de la tarea" spellcheck="true"${alignAttr(t.align)}>${RT.toHTML(t.text, t.marks)}</div>
       <div class="flex flex-wrap items-center gap-2">
         <div class="prio-chips" role="radiogroup" data-edit="prio" data-value="${t.priority}">${prioChipsHTML(t.priority, "edit")}</div>
         <input type="date" class="field due-field" data-edit="due" value="${esc(t.due)}" aria-label="Fecha límite">
@@ -199,7 +202,7 @@ function taskHTML(t) {
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
       <span class="dot" aria-label="Prioridad ${PRIORITIES.find((p) => p.key === t.priority)?.label ?? ""}"></span>
       <div class="task-main">
-        <div class="task-text">${RT.toHTML(t.text, t.marks)}</div>
+        <div class="task-text"${alignAttr(t.align)}>${RT.toHTML(t.text, t.marks)}</div>
         ${meta ? `<div class="due-label ${overdue ? "overdue" : ""}">${meta}</div>` : ""}
       </div>
       <button class="icon-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
@@ -292,6 +295,7 @@ $("#task-form").addEventListener("submit", (e) => {
     due: $("#task-due").value, reminders: [],
   };
   if (marks.length) task.marks = marks;
+  if (RE.getAlign(input)) task.align = RE.getAlign(input);
   state.tasks.unshift(task);
   RE.clearLine(input);
   $("#task-due").value = "";
@@ -389,8 +393,10 @@ $("#task-groups").addEventListener("click", (e) => {
       break;
     case "save-task": {
       if (!task) break;
-      const { text, marks } = RT.trim(RE.getLine(li.querySelector("[data-edit='text']")));
+      const field = li.querySelector("[data-edit='text']");
+      const { text, marks } = RT.trim(RE.getLine(field));
       if (!text) break;
+      if (RE.getAlign(field)) task.align = RE.getAlign(field); else delete task.align;
       const due = li.querySelector("[data-edit='due']").value;
       task.text = text;
       if (marks.length) task.marks = marks; else delete task.marks;
@@ -1289,6 +1295,8 @@ function makeBlock(b) {
   el.className = "blk";
   el.dataset.type = b.type || "p";
   el.dataset.id = b.id || uid();
+  const align = RT.cleanAlign(b.align);
+  if (align) el.dataset.align = align;
   if (b.text) el.innerHTML = RT.toHTML(b.text, b.marks);
   return el;
 }
@@ -1297,7 +1305,7 @@ function makeBlock(b) {
 function blockText(el) {
   let t = "";
   el.childNodes.forEach((n) => { if (n.nodeType === 3) t += n.nodeValue; else if (n.nodeName !== "BR") t += n.textContent; });
-  return t;
+  return RE.noZW(t); // sin las anclas invisibles del formato
 }
 const blockModel = (el) => RT.fromDOM(el);
 function setBlockModel(el, m) { el.innerHTML = RT.toHTML(m.text, m.marks); }
@@ -1307,6 +1315,8 @@ function readDoc(root) {
     const m = blockModel(el);
     const b = { id: el.dataset.id || (el.dataset.id = uid()), type: el.dataset.type || "p", text: m.text };
     if (m.marks.length) b.marks = m.marks;
+    const align = RT.cleanAlign(el.dataset.align);
+    if (align) b.align = align;
     return b;
   });
 }
@@ -1318,7 +1328,7 @@ function trimDoc(doc) {
 
 function docViewHTML(doc) {
   return `<div class="doc">${doc.filter((b) => b.text.trim()).map((b) =>
-    `<div class="blk" data-type="${b.type}" data-id="${esc(b.id)}">${RT.toHTML(b.text, b.marks)}</div>`).join("")}</div>`;
+    `<div class="blk" data-type="${b.type}" data-id="${esc(b.id)}"${alignAttr(b.align)}>${RT.toHTML(b.text, b.marks)}</div>`).join("")}</div>`;
 }
 
 function currentBlock(root) {
@@ -1337,23 +1347,13 @@ function caretOffset(blk) {
   const pre = document.createRange();
   pre.selectNodeContents(blk);
   pre.setEnd(r.endContainer, r.endOffset);
-  return pre.toString().length;
+  return RE.noZW(pre.toString()).length;
 }
 
 function setCaret(blk, offset) {
   const range = document.createRange();
-  let left = offset, placed = false;
-  const walk = (node) => {
-    for (const c of node.childNodes) {
-      if (placed) return;
-      if (c.nodeType === 3) {
-        if (left <= c.length) { range.setStart(c, left); placed = true; return; }
-        left -= c.length;
-      } else walk(c);
-    }
-  };
-  walk(blk);
-  if (!placed) range.setStart(blk, blk.childNodes.length);
+  const [node, i] = RE.place(blk, offset);
+  range.setStart(node, i);
   range.collapse(true);
   const sel = getSelection();
   sel.removeAllRanges();
@@ -1452,10 +1452,11 @@ function splitBlock(root, blk) {
   if (!sel.isCollapsed) { sel.deleteFromDocument(); normalizeRoot(root); blk = currentBlock(root) || blk; }
   const m = blockModel(blk), text = m.text, off = caretOffset(blk), type = blk.dataset.type;
   if (type === "ul" && !text) { blk.dataset.type = "p"; setCaret(blk, 0); return; }
-  if (off === 0 && text) { blk.before(makeBlock({ type: type === "ul" ? "ul" : "p" })); setCaret(blk, 0); return; }
+  const align = blk.dataset.align; // el párrafo nuevo sigue con la misma alineación
+  if (off === 0 && text) { blk.before(makeBlock({ type: type === "ul" ? "ul" : "p", align })); setCaret(blk, 0); return; }
   setBlockModel(blk, RT.slice(m, 0, off));
   const rest = RT.slice(m, off, text.length);
-  const nb = makeBlock({ type: type === "ul" ? "ul" : "p", text: rest.text, marks: rest.marks });
+  const nb = makeBlock({ type: type === "ul" ? "ul" : "p", text: rest.text, marks: rest.marks, align });
   blk.after(nb);
   setCaret(nb, 0);
   nb.scrollIntoView({ block: "nearest" });
@@ -1605,11 +1606,12 @@ function bookPageViewHTML(b) {
   const boxes = SECTIONS.map((s) => `
     <div class="box ${s.cls}">
       <h3>${s.label}</h3>
-      ${b[s.key] ? `<p>${RT.toHTML(b[s.key], b[s.key + "Marks"], { nl: true })}</p>` : `<p class="empty">Sin contenido</p>`}
+      ${b[s.key] ? `<p>${linesToBlocks(b[s.key], b[s.key + "Marks"], b[s.key + "Aligns"]).map((l) =>
+        `<span class="ln"${alignAttr(l.align)}>${RT.toHTML(l.text, l.marks) || "<br>"}</span>`).join("")}</p>` : `<p class="empty">Sin contenido</p>`}
     </div>`).join("");
   return `
-    <h2 class="page-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</h2>
-    <p class="muted book-page-author">${RT.toHTML(b.author, b.authorMarks) || "Autor desconocido"}</p>
+    <h2 class="page-title"${alignAttr(b.titleAlign)}>${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</h2>
+    <p class="muted book-page-author"${alignAttr(b.authorAlign)}>${RT.toHTML(b.author, b.authorMarks) || "Autor desconocido"}</p>
     ${b.template === "free" ? freeViewHTML(b) : `<div class="grid-gap">${boxes}</div>`}`;
 }
 
@@ -1624,8 +1626,8 @@ function bookEditHTML(d) {
     </div>`).join("");
   return `
     <div class="grid-gap">
-      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="title" data-max="200" data-ph="Título del libro" aria-label="Título">${RT.toHTML(d.title, d.titleMarks)}</div>
-      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="author" data-max="200" data-ph="Autor" aria-label="Autor">${RT.toHTML(d.author, d.authorMarks)}</div>
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="title" data-max="200" data-ph="Título del libro" aria-label="Título"${alignAttr(d.titleAlign)}>${RT.toHTML(d.title, d.titleMarks)}</div>
+      <div class="field rt-edit rt-line" contenteditable="true" role="textbox" data-field="author" data-max="200" data-ph="Autor" aria-label="Autor"${alignAttr(d.authorAlign)}>${RT.toHTML(d.author, d.authorMarks)}</div>
       <div>
         <p class="setting-label">Plantilla</p>
         <div class="seg" role="radiogroup" aria-label="Plantilla del resumen">
@@ -1674,7 +1676,7 @@ function renderBookPage() {
   $$("#book-detail .sec-editor").forEach((el) => { // los cuadros por bloques: una línea = un bloque de texto
     const s = SECTIONS.find((x) => x.key === el.dataset.section);
     el.style.setProperty("--ph", JSON.stringify(s.hint));
-    mountEditor(el, linesToBlocks(draft[s.key], draft[s.key + "Marks"]), autosave, { plain: true });
+    mountEditor(el, linesToBlocks(draft[s.key], draft[s.key + "Marks"], draft[s.key + "Aligns"]), autosave, { plain: true });
   });
   updateActiveDots();
 }
@@ -1722,34 +1724,39 @@ function syncDraft(card, d) {
     const m = RE.getLine(el);
     d[el.dataset.field] = m.text;
     d[el.dataset.field + "Marks"] = m.marks;
+    d[el.dataset.field + "Align"] = RE.getAlign(el);
   });
   card.querySelectorAll(".sec-editor").forEach((el) => {
-    const m = blocksToText(readDoc(el));
+    const m = blocksToText(trimDoc(readDoc(el)));
     d[el.dataset.section] = m.text;
     d[el.dataset.section + "Marks"] = m.marks;
+    d[el.dataset.section + "Aligns"] = m.aligns;
   });
   const ed = card.querySelector(".editor:not(.sec-editor)");
   if (ed) d.doc = readDoc(ed);
 }
 
 /* Los cuadros por bloques se guardan como texto con saltos de línea (+ tramos de formato); al editar, cada línea es un bloque */
-function linesToBlocks(text, marks) {
+function linesToBlocks(text, marks, aligns) {
   const m = { text: String(text || ""), marks };
   const out = [];
   let pos = 0;
-  m.text.split("\n").forEach((line) => {
+  m.text.split("\n").forEach((line, i) => {
     const part = RT.slice(m, pos, pos + line.length);
-    out.push({ type: "p", text: part.text, marks: part.marks });
+    out.push({ type: "p", text: part.text, marks: part.marks, align: RT.cleanAlign(Array.isArray(aligns) ? aligns[i] : "") });
     pos += line.length + 1;
   });
   return out;
 }
+/* Devuelve { text, marks, aligns }: aligns lleva la alineación de cada línea (vacío si todas van a la izquierda) */
 function blocksToText(blocks) {
   let m = { text: "", marks: [] };
   blocks.forEach((b, i) => {
     if (i) m = RT.concat(m, { text: "\n", marks: [] });
     m = RT.concat(m, { text: b.text, marks: b.marks || [] });
   });
+  const aligns = blocks.map((b) => RT.cleanAlign(b.align));
+  m.aligns = aligns.some(Boolean) ? aligns : [];
   return m;
 }
 
@@ -1831,11 +1838,17 @@ function saveBookDraft(id) {
   // Se guarda una copia recortada; el borrador en pantalla no se toca (para no mover el cursor mientras escribes)
   const out = clone(d);
   delete out.updatedAt;
+  const drop = (key) => { delete out[key]; delete book[key]; }; // campo opcional vacío: no se guarda
   ["title", "author", ...SECTIONS.map((s) => s.key)].forEach((k) => {
-    const m = RT.trim({ text: out[k] || "", marks: out[k + "Marks"] });
+    const raw = out[k] || "";
+    const lead = (/^\s*/.exec(raw)[0].match(/\n/g) || []).length; // líneas vacías al inicio que se recortan
+    const m = RT.trim({ text: raw, marks: out[k + "Marks"] });
     out[k] = m.text;
-    if (m.marks.length) out[k + "Marks"] = m.marks;
-    else { delete out[k + "Marks"]; delete book[k + "Marks"]; }
+    if (m.marks.length) out[k + "Marks"] = m.marks; else drop(k + "Marks");
+    // alineación: del campo (título, autor) o de cada línea (cuadros)
+    if (RT.cleanAlign(out[k + "Align"]) && m.text) out[k + "Align"] = RT.cleanAlign(out[k + "Align"]); else drop(k + "Align");
+    const aligns = Array.isArray(out[k + "Aligns"]) ? out[k + "Aligns"].slice(lead, lead + m.text.split("\n").length).map(RT.cleanAlign) : [];
+    if (m.text && aligns.some(Boolean)) out[k + "Aligns"] = aligns; else drop(k + "Aligns");
   });
   out.doc = trimDoc(out.doc || []);
   const hasContent = out.title || out.author || SECTIONS.some((s) => out[s.key]) || out.doc.length;

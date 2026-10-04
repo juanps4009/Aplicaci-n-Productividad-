@@ -1,16 +1,18 @@
 "use strict";
 /* Edición con formato en la página: campos de una línea (.rt-line) y la barra de formato
-   (negrita, tamaño, color de letra, resaltado, subrayado de color) que sale al escribir en
+   (negrita, tamaño, color de letra, resaltado, subrayado de color, alineación) que sale al escribir en
    cualquier campo de texto o editor (.editor). La lógica de los tramos está en richtext.js (RT). */
 const RE = (() => {
   const $bar = () => document.getElementById("format-bar");
+  const ZW = "​"; // ancla invisible: marca dónde se escribe con otro estilo; no cuenta como texto
+  const noZW = (s) => s.replace(/​/g, "");
 
-  /* ----- posiciones dentro de un elemento (en caracteres de texto, igual que RT.fromDOM) ----- */
+  /* ----- posiciones dentro de un elemento (en caracteres de texto, igual que RT.fromDOM: sin contar anclas) ----- */
   function pointOffset(el, node, off) {
     const r = document.createRange();
     r.selectNodeContents(el);
     r.setEnd(node, off);
-    return r.toString().length;
+    return noZW(r.toString()).length;
   }
   const lengthOf = (el) => RT.fromDOM(el).text.length;
 
@@ -26,12 +28,18 @@ const RE = (() => {
     return { start: Math.min(start, end), end: Math.max(start, end) };
   }
 
+  /* Nodo de texto y posición dentro de él para la posición `off` del elemento */
   function place(el, off) {
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let left = off, n;
     while ((n = w.nextNode())) {
-      if (left <= n.nodeValue.length) return [n, left];
-      left -= n.nodeValue.length;
+      const v = n.nodeValue, len = noZW(v).length;
+      if (left <= len) {
+        let i = 0, seen = 0;
+        while (i < v.length && seen < left) { if (v[i] !== ZW) seen++; i++; }
+        return [n, i];
+      }
+      left -= len;
     }
     return [el, el.childNodes.length];
   }
@@ -49,7 +57,8 @@ const RE = (() => {
   /* ----- campos de una línea ----- */
   const getLine = (el) => RT.fromDOM(el);
   function setLine(el, text, marks) { el.innerHTML = RT.toHTML(text, marks); }
-  function clearLine(el) { el.innerHTML = ""; }
+  function clearLine(el) { el.innerHTML = ""; el.removeAttribute("data-align"); }
+  const getAlign = (el) => RT.cleanAlign(el.dataset.align);
 
   function rerender(el, m, caret) {
     el.innerHTML = RT.toHTML(m.text, m.marks);
@@ -106,65 +115,139 @@ const RE = (() => {
     if (e.target.closest && e.target.closest(".rt-line")) e.preventDefault();
   });
 
-  /* ----- aplicar formato ----- */
-  function targets() {
+  /* Al salir de un campo se quitan las anclas invisibles que hayan quedado */
+  document.addEventListener("focusout", (e) => {
+    const host = e.target;
+    if (!host || !host.classList) return;
+    const els = host.classList.contains("rt-line") ? [host] : host.classList.contains("editor") ? [...host.children] : [];
+    els.forEach((el) => {
+      if (!el.textContent.includes(ZW)) return;
+      const m = RT.fromDOM(el);
+      el.innerHTML = RT.toHTML(m.text, m.marks);
+    });
+  });
+
+  /* ----- dónde se aplica el formato ----- */
+  function host() {
     const ae = document.activeElement;
-    if (!ae) return [];
-    if (ae.classList.contains("rt-line")) return [ae];
-    if (ae.classList.contains("editor")) {
-      const sel = getSelection();
-      if (!sel.rangeCount) return [];
-      const r = sel.getRangeAt(0);
-      return [...ae.children].filter((b) => b.classList.contains("blk") && r.intersectsNode(b));
-    }
-    return [];
+    return ae && ae.classList && (ae.classList.contains("rt-line") || ae.classList.contains("editor")) ? ae : null;
   }
 
-  /* Da formato a la selección (o a la palabra donde está el cursor). patch: ver RT.format; "bold" alterna la negrita. */
+  /* Elementos de texto que toca la selección: el campo, o los párrafos del editor */
+  function targets() {
+    const h = host();
+    if (!h) return [];
+    if (h.classList.contains("rt-line")) return [h];
+    const sel = getSelection();
+    if (!sel.rangeCount) return [];
+    const r = sel.getRangeAt(0);
+    return [...h.children].filter((b) => b.classList.contains("blk") && r.intersectsNode(b));
+  }
+
+  /* Estilo con el que se escribiría ahora (cursor) o el del inicio de la selección */
+  function currentStyle() {
+    const sel = getSelection();
+    const h = host();
+    if (!h || !sel.rangeCount) return null;
+    const r = sel.getRangeAt(0);
+    if (r.collapsed) {
+      const n = r.startContainer;
+      const span = (n.nodeType === 1 ? n : n.parentElement)?.closest(".rt");
+      if (!span || !h.contains(span)) return null;
+      const d = span.dataset, own = {};
+      if (d.b) own.b = 1;
+      ["c", "h", "u", "z"].forEach((k) => { if (d[k] !== undefined) own[k] = d[k]; });
+      return RT.cleanStyle(own);
+    }
+    const el = targets()[0];
+    if (!el) return null;
+    const o = selectionIn(el);
+    return o ? RT.styleAt(RT.fromDOM(el), o.start) : null;
+  }
+
+  /* Sin selección: deja el cursor listo para escribir con `style` (o sin formato) justo donde está.
+     Se parte el texto en el cursor y se pone un ancla invisible con ese estilo; el navegador escribe dentro de ella,
+     así que no hace falta redibujar mientras se teclea (importante para los teclados de celular). */
+  function setTypingStyle(el, pos, style) {
+    const m = RT.fromDOM(el);
+    const left = RT.slice(m, 0, pos), right = RT.slice(m, pos, m.text.length);
+    el.innerHTML = RT.toHTML(left.text, left.marks) + RT.wrap(style, ZW) + RT.toHTML(right.text, right.marks);
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode())) {
+      const i = n.nodeValue.indexOf(ZW);
+      if (i < 0) continue;
+      const r = document.createRange();
+      r.setStart(n, i + 1);
+      r.collapse(true);
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return;
+    }
+  }
+
+  /* Da formato a la selección; sin selección, cambia el estilo de lo próximo que se escriba (como en Word).
+     patch: ver RT.format; "bold" alterna la negrita. */
   function apply(patch) {
     const els = targets();
     if (!els.length) return false;
     const collapsed = getSelection().getRangeAt(0).collapsed;
+    if (collapsed) {
+      const el = els[0];
+      const cur = currentStyle();
+      if (patch === "bold") patch = { b: !(cur && cur.b) };
+      const o = selectionIn(el) || { start: 0 };
+      setTypingStyle(el, o.start, RT.patchStyle(cur, patch));
+      updateBar();
+      return true;
+    }
     const items = els.map((el) => {
       const o = selectionIn(el) || { start: 0, end: 0 };
       return { el, m: RT.fromDOM(el), start: o.start, end: o.end };
     });
-    let caret = null;
-    if (collapsed) { // sin selección: se usa la palabra bajo el cursor
-      const it = items[0];
-      caret = it.start;
-      const w = RT.wordAt(it.m.text, it.start);
-      if (!w) return false;
-      it.start = w[0]; it.end = w[1];
-    }
     const ranged = items.filter((it) => it.end > it.start);
     if (!ranged.length) return false;
-    if (patch === "bold") {
-      patch = { b: !ranged.every((it) => RT.every(it.m, it.start, it.end, "b")) };
-    }
+    if (patch === "bold") patch = { b: !ranged.every((it) => RT.every(it.m, it.start, it.end, "b")) };
     ranged.forEach((it) => {
       const next = RT.format(it.m, it.start, it.end, patch);
       it.el.innerHTML = RT.toHTML(next.text, next.marks);
     });
     const first = items[0], last = items[items.length - 1];
-    if (collapsed) select(first.el, caret, first.el, caret);
-    else select(first.el, first.start, last.el, last.end);
+    select(first.el, first.start, last.el, last.end);
     first.el.dispatchEvent(new Event("input", { bubbles: true }));
     updateBar();
     return true;
   }
 
+  /* Alinea los párrafos (o el campo) donde está el cursor o la selección: "" (izquierda), "center" o "right" */
+  function align(value) {
+    const els = targets();
+    if (!els.length) return false;
+    value = RT.cleanAlign(value);
+    els.forEach((el) => { if (value) el.dataset.align = value; else el.removeAttribute("data-align"); });
+    els[0].dispatchEvent(new Event("input", { bubbles: true }));
+    updateBar();
+    return true;
+  }
+
   /* ----- barra de formato ----- */
-  const ICON_HL = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l-5 5v3h3l5-5"/><path d="M14 6l4 4-7 7-4-4z"/><path d="M3 21h18" stroke-width="3"/></svg>`;
+  const svg = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const ICON_HL = svg(`<path d="M9 11l-5 5v3h3l5-5"/><path d="M14 6l4 4-7 7-4-4z"/><path d="M3 21h18" stroke-width="3" class="fb-cur"/>`);
+  const ICON_ALIGN = { "": svg(`<path d="M4 6h16M4 12h10M4 18h13"/>`), center: svg(`<path d="M4 6h16M7 12h10M5.5 18h13"/>`), right: svg(`<path d="M4 6h16M10 12h10M7 18h13"/>`) };
   const MAIN = [
     { act: "bold", label: "Negrita", html: "<b>N</b>" },
     { act: "size", label: "Tamaño de letra", html: `<span class="fb-size">A<small>A</small></span>` },
     { act: "color", label: "Color de letra", html: `<span class="fb-a">A</span>` },
     { act: "hl", label: "Resaltar con color", html: ICON_HL },
-    { act: "ul", label: "Subrayar con color", html: "<u>S</u>" },
+    { act: "ul", label: "Subrayar con color", html: `<span class="fb-u">S</span>` },
+    { act: "align", label: "Alinear el texto", html: ICON_ALIGN[""] },
     { act: "clear", label: "Quitar el formato", html: "✕" },
   ];
-  let menu = ""; // submenú abierto: size | color | hl | ul
+  const NONE = { color: "Color normal", hl: "Sin resaltado", ul: "Sin subrayado" };
+  const ALIGNS = [{ v: "", name: "Izquierda" }, { v: "center", name: "Centro" }, { v: "right", name: "Derecha" }];
+  const KEY = { color: "c", hl: "h", ul: "u" };
+  let menu = ""; // submenú abierto: size | color | hl | ul | align
 
   function buildBar() {
     const bar = $bar();
@@ -193,45 +276,64 @@ const RE = (() => {
     // elementos del submenú
     const kind = b.dataset.kind, val = b.dataset.val;
     if (kind === "size") apply({ z: Number(val) });
-    else apply({ [{ color: "c", hl: "h", ul: "u" }[kind]]: val || null });
+    else if (kind === "align") align(val);
+    else apply({ [KEY[kind]]: val || null });
     menu = "";
     renderSub();
   }
 
   function renderSub() {
-    const sub = $bar().querySelector(".fb-sub");
-    $bar().querySelectorAll(".fb-row button").forEach((x) => x.classList.toggle("on", x.dataset.act === menu));
+    const bar = $bar(), sub = bar.querySelector(".fb-sub");
+    bar.querySelectorAll(".fb-row button").forEach((x) => x.classList.toggle("open", x.dataset.act === menu));
     if (!menu) { sub.classList.add("hidden"); sub.innerHTML = ""; return; }
     if (menu === "size") {
       sub.innerHTML = RT.SIZE_STEPS.map((s) => `<button type="button" class="fb-opt" data-kind="size" data-val="${s.z}">${s.name}</button>`).join("");
-    } else {
-      sub.innerHTML = RT.COLORS.map((c) => `<button type="button" class="fb-swatch" data-kind="${menu}" data-val="${c.hex}" style="--sw:${c.hex}" aria-label="${c.name}" title="${c.name}"></button>`).join("")
-        + `<button type="button" class="fb-opt" data-kind="${menu}" data-val="" aria-label="Sin color" title="Sin color">✕</button>`;
+    } else if (menu === "align") {
+      sub.innerHTML = ALIGNS.map((a) => `<button type="button" class="fb-opt" data-kind="align" data-val="${a.v}" aria-label="${a.name}" title="${a.name}">${ICON_ALIGN[a.v]}</button>`).join("");
+    } else { // primero el círculo vacío: quita ese color / deja de subrayar o resaltar
+      sub.innerHTML = `<button type="button" class="fb-swatch fb-none" data-kind="${menu}" data-val="" aria-label="${NONE[menu]}" title="${NONE[menu]}"></button>`
+        + RT.COLORS.map((c) => `<button type="button" class="fb-swatch" data-kind="${menu}" data-val="${c.hex}" style="--sw:${c.hex}" aria-label="${c.name}" title="${c.name}"></button>`).join("");
     }
     sub.classList.remove("hidden");
   }
 
-  /* La barra se queda pegada abajo, encima del teclado del celular */
+  /* Los botones muestran el estilo con el que se está escribiendo (o el de la selección) */
+  function reflect() {
+    const bar = $bar();
+    const st = currentStyle() || {};
+    const btn = (act) => bar.querySelector(`.fb-row [data-act=${act}]`);
+    btn("bold").classList.toggle("on", !!st.b);
+    btn("size").classList.toggle("on", !!st.z);
+    [["color", "c"], ["hl", "h"], ["ul", "u"]].forEach(([act, k]) => {
+      btn(act).classList.toggle("on", !!st[k]);
+      btn(act).style.setProperty("--cur", st[k] || "currentColor");
+    });
+    const el = targets()[0];
+    const a = el ? RT.cleanAlign(el.dataset.align) : "";
+    btn("align").innerHTML = ICON_ALIGN[a];
+    btn("align").classList.toggle("on", !!a);
+  }
+
+  /* La barra se queda abajo: encima del teclado del celular o, sin teclado, encima de la barra de navegación */
   function placeBar() {
     const bar = $bar();
     const vv = window.visualViewport;
     const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-    bar.style.bottom = kb + "px";
+    const nav = document.querySelector(".bottom-nav");
+    const pageOpen = document.querySelector(".page:not(.hidden)");
+    const base = !pageOpen && nav ? nav.offsetHeight : 0;
+    bar.style.bottom = (kb > 40 ? kb : base) + "px";
   }
 
   function updateBar() {
     const bar = $bar();
     if (!bar) return;
-    const ae = document.activeElement;
-    // La barra sale cuando hay texto seleccionado dentro de un campo con formato (así no tapa los botones de guardar)
-    const sel = getSelection();
-    const on = !!ae && (ae.classList.contains("rt-line") || ae.classList.contains("editor"))
-      && sel.rangeCount > 0 && !sel.isCollapsed && ae.contains(sel.anchorNode);
+    const on = !!host();
     if (on) buildBar();
     bar.classList.toggle("hidden", !on);
-    document.documentElement.classList.toggle("fbar-on", on);
-    if (!on) { menu = ""; if (bar.dataset.ready) renderSub(); }
-    else placeBar();
+    if (!on) { menu = ""; if (bar.dataset.ready) renderSub(); return; }
+    placeBar();
+    reflect();
   }
 
   document.addEventListener("focusin", updateBar);
@@ -248,5 +350,5 @@ const RE = (() => {
     }
   });
 
-  return { getLine, setLine, clearLine, selectionIn, select, apply, updateBar };
+  return { getLine, setLine, clearLine, getAlign, selectionIn, select, place, pointOffset, apply, align, updateBar, noZW };
 })();

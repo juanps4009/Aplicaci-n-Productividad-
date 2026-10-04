@@ -54,4 +54,13 @@ assert(RT.toHTML('a\nb', [], { nl: true }).includes('<br>')); assert(RT.toHTML('
 assert(RT.toHTML('hola', [{ s: 0, e: 4, u: '#2563eb', z: -1 }]).includes('text-decoration-color:#2563eb') && RT.toHTML('hola', [{ s: 0, e: 4, z: -1 }]).includes('font-size:0.85em'));
 ok('toHTML: escapa el texto, solo escribe estilos válidos y descarta los trucos');
 
+// estilo de «lo próximo que escriba», alineación y tramo suelto
+assert.deepStrictEqual(RT.styleAt(RT.format(M('abc'), 1, 2, { b: true }), 1), { b: 1 }); assert.strictEqual(RT.styleAt(M('abc'), 1), null);
+assert.deepStrictEqual(RT.patchStyle({ b: 1, u: '#2563eb' }, { u: null }), { b: 1 }); assert.strictEqual(RT.patchStyle({ u: '#2563eb' }, { u: null }), null);
+assert.deepStrictEqual(RT.patchStyle(null, { c: '#dc2626', z: 2 }), { c: '#dc2626', z: 2 }); assert.strictEqual(RT.patchStyle(null, { c: 'red' }), null);
+assert.strictEqual(RT.cleanAlign('center'), 'center'); assert.strictEqual(RT.cleanAlign('right'), 'right');
+['left', 'justify', '', null, undefined, 'center;color:red', 5].forEach((a) => assert.strictEqual(RT.cleanAlign(a), ''));
+assert.strictEqual(RT.wrap(null, 'x'), 'x'); assert(RT.wrap({ u: '#2563eb' }, 'x').startsWith('<span class="rt" data-u="#2563eb"')); assert.strictEqual(RT.wrap({ c: 'javascript:1' }, 'x'), 'x');
+ok('styleAt/patchStyle (estilo al escribir), cleanAlign (solo centro o derecha) y wrap');
+
 console.log('todas las pruebas de richtext.js pasan');

@@ -391,7 +391,8 @@ a.btn-primary { display: block; }
 .fb-swatch { min-width: 38px; }
 .fb-swatch::after { content: ""; width: 24px; height: 24px; border-radius: 9999px; background: var(--sw); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
 .fb-opt { padding: 0 0.8rem; font-size: 0.9rem; font-weight: 600; }
-.fbar-on .app-main, .fbar-on .page-body { padding-bottom: 9rem; }
+.app-main { padding-bottom: calc(10.5rem + env(safe-area-inset-bottom)); }
+.page-body { padding-bottom: 9rem; }
 .sec-editor, .page .sec-editor { min-height: 5.5rem; background: var(--surface); }
 .sec-editor.is-empty .blk:first-child::before { content: var(--ph, ""); }
 
@@ -399,3 +400,17 @@ a.btn-primary { display: block; }
 #open-sync.is-syncing .badge { animation: sync-pulse 1s ease-in-out infinite; }
 #open-sync.is-error .badge { background: var(--danger); width: 10px; height: 10px; top: 8px; right: 8px; }
 @keyframes sync-pulse { 50% { opacity: 0.25; transform: scale(1.7); } }
+
+/* AlineaciÃ³n de pÃ¡rrafos y campos (izquierda por defecto) */
+[data-align="center"] { text-align: center; }
+[data-align="right"] { text-align: right; }
+.ln { display: block; min-height: 1.4em; }
+
+/* Barra de formato: estado actual y cÃ­rculo Â«sin colorÂ» */
+.format-bar button.open { background: var(--surface-2); }
+.fb-a { border-bottom-color: var(--cur, currentColor); }
+.fb-u { font-weight: 600; text-decoration: underline; text-decoration-color: var(--cur, currentColor); text-decoration-thickness: 3px; text-underline-offset: 4px; }
+.fb-cur { stroke: var(--cur, currentColor); }
+.fb-none::after { background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--danger) calc(50% - 1.5px), var(--danger) calc(50% + 1.5px), transparent calc(50% + 1.5px)); box-shadow: 0 0 0 2px var(--muted); border-color: var(--surface); }
+.fb-sub { gap: 0.1rem; }
+.format-bar .fb-swatch { min-width: 34px; }
