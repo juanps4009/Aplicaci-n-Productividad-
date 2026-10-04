@@ -44,4 +44,23 @@ delete D.books[0].isNew; edit(D,2); assert.strictEqual(S.collectPush([],D.books,
 const E=dev(); E.tasks.push({id:'l1',text:'legado'}); S.prime('tasks',E.tasks,E.tr,777); assert.strictEqual(E.tasks[0].updatedAt,777); edit(E,900); assert.strictEqual(E.tasks[0].updatedAt,777);
 // purga
 assert.strictEqual(S.purgeTombs([{updatedAt:0},{updatedAt:Date.now()}],Date.now(),60).length,1);
+// --- pendientes de subir (dirty): no dependen del reloj
+const F=dev(); F.tasks.push({id:'f1',text:'uno'}); F.books.push({id:'fb',title:'libro'}); edit(F,10000);
+assert.deepStrictEqual(Object.keys(F.tr.dirty).sort(),['books:fb','tasks:f1']);
+// el reloj retrocede (lastPushAt quedó en el "futuro"): antes no se subía, ahora sí
+F.tasks[0].text='dos'; edit(F,500); assert.strictEqual(F.tasks[0].updatedAt,10001);
+let up=S.collectPush(F.tasks,F.books,F.tombs,99999,F.tr); assert.deepStrictEqual(up.map(x=>x.id).sort(),['f1','fb']);
+// subida correcta: se limpia; lo que cambió mientras se subía sigue pendiente
+F.books[0].title='libro 2'; edit(F,600); assert.strictEqual(F.tr.dirty['books:fb'],10001);
+S.clearPushed(F.tr,up); assert.deepStrictEqual(Object.keys(F.tr.dirty),['books:fb']);
+up=S.collectPush(F.tasks,F.books,F.tombs,99999,F.tr); assert.deepStrictEqual(up.map(x=>x.id),['fb']); S.clearPushed(F.tr,up); assert.deepStrictEqual(F.tr.dirty,{});
+assert.strictEqual(S.collectPush(F.tasks,F.books,F.tombs,99999,F.tr).length,0);
+// borrado: queda pendiente hasta subirlo
+F.tasks=[]; edit(F,700); up=S.collectPush(F.tasks,F.books,F.tombs,99999,F.tr); assert(up.length===1&&up[0].deleted===1&&up[0].id==='f1'); S.clearPushed(F.tr,up); assert.deepStrictEqual(F.tr.dirty,{});
+// lo que llega y reemplaza lo local deja de estar pendiente
+F.books[0].title='libro 3'; edit(F,800); assert(F.tr.dirty['books:fb']!==undefined);
+S.mergeIncoming('books',F.books,[{id:'fb',col:'books',updatedAt:50000,deleted:0,data:JSON.stringify({id:'fb',title:'de otro'})}],F.tr,F.tombs,new Set()); assert.strictEqual(F.books[0].title,'de otro'); assert.deepStrictEqual(F.tr.dirty,{});
+// compatibilidad: sin lista de pendientes sigue valiendo «modificado después de la última subida»
+assert.strictEqual(S.collectPush(F.tasks,F.books,F.tombs,0).length,2); assert.strictEqual(S.collectPush(F.tasks,F.books,F.tombs,0,S.newTracker()).length,2);
+console.log('OK pendientes de subir: reloj que retrocede, cambios durante la subida, borrados, reemplazo por lo que llega');
 console.log('todas las pruebas de sync.js pasan');})();

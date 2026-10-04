@@ -66,7 +66,7 @@ const assert = require('assert');
   await p.click('.sec-editor[data-section=ideas] .blk'); await p.keyboard.type('primera idea'); await p.keyboard.press('Enter'); await p.keyboard.type('segunda idea');
   await p.keyboard.press('Control+A'); await act('color'); await pick('color', '#9333ea');
   await p.keyboard.press('ArrowRight'); await p.waitForSelector('#format-bar.hidden', { state: 'attached' }); // sin selección la barra se va
-  await p.click('[data-action=save]');
+  await p.click('[data-action=done]');
   const bk = (await stored('prod.books'))[0];
   assert.strictEqual(bk.ideas, 'primera idea\nsegunda idea'); assert(bk.ideasMarks && bk.ideasMarks.length === 2 && bk.ideasMarks[0].s === 0 && bk.ideasMarks[0].e === 12 && bk.ideasMarks[1].s === 13 && bk.ideasMarks[1].e === 25 && bk.ideasMarks.every((m) => m.c === '#9333ea'));
   assert(bk.titleMarks && bk.titleMarks[0].b === 1 && bk.author === 'Autora' && !bk.authorMarks); ok('resumen por bloques: título, autor y cuadros guardan su formato');
@@ -74,7 +74,7 @@ const assert = require('assert');
   assert((await p.locator('#book-detail .box.ideas p').innerText()).includes('primera idea\nsegunda idea')); ok('la vista del resumen muestra el formato y los saltos de línea');
   await p.click('#book-back'); assert.strictEqual(await p.locator('#book-list .book-row-title .rt[data-b]').count(), 1); ok('la lista de resúmenes también');
   await p.click('.book-open'); await p.click('[data-action=edit]'); assert.strictEqual(await p.locator('.sec-editor[data-section=ideas] .blk').count(), 2); assert.strictEqual(await p.locator('.sec-editor[data-section=ideas] .rt').count() >= 2, true); ok('al editar de nuevo, cada línea es un bloque con su formato');
-  await p.click('[data-action=cancel]');
+  await p.click('[data-action=done]');
 
   // ---- datos de otro dispositivo: solo se aceptan colores #rrggbb y tamaños conocidos (nada de HTML ni CSS)
   await p.evaluate(() => {

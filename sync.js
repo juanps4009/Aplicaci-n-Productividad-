@@ -23,7 +23,8 @@
   }
 
   const sig = (rec) => { const { updatedAt, ...rest } = rec; return JSON.stringify(rest); };
-  const newTracker = () => ({ sigs: {}, known: { tasks: {}, books: {} } });
+  /* dirty: lo que cambió aquí y aún no se subió (clave "col:id" → updatedAt del cambio). No depende del reloj. */
+  const newTracker = () => ({ sigs: {}, known: { tasks: {}, books: {} }, dirty: {} });
 
   /* Al iniciar: registra el estado actual como "ya conocido" (registros sin updatedAt reciben uno). */
   function prime(col, list, tracker, now) {
@@ -44,7 +45,10 @@
       if (rec.isNew) return; // borradores no se sincronizan
       present[rec.id] = true;
       const key = col + ":" + rec.id, s = sig(rec);
-      if (tracker.sigs[key] !== s) { rec.updatedAt = Math.max(now, (rec.updatedAt || 0) + 1); tracker.sigs[key] = s; changed = true; }
+      if (tracker.sigs[key] !== s) {
+        rec.updatedAt = Math.max(now, (rec.updatedAt || 0) + 1); tracker.sigs[key] = s; changed = true;
+        if (tracker.dirty) tracker.dirty[key] = rec.updatedAt;
+      }
       const t = tombs.findIndex((x) => x.col === col && x.id === rec.id);
       if (t >= 0) tombs.splice(t, 1); // reapareció: ya no está borrado
       tracker.known[col][rec.id] = true;
@@ -55,19 +59,34 @@
       delete tracker.sigs[col + ":" + id];
       const t = tombs.findIndex((x) => x.col === col && x.id === id);
       if (t >= 0) tombs[t].updatedAt = now; else tombs.push({ id, col, updatedAt: now });
+      if (tracker.dirty) tracker.dirty[col + ":" + id] = now;
       changed = true;
     });
     return changed;
   }
 
-  /* Registros a subir: lo modificado (o borrado) después de la última subida. */
-  function collectPush(tasks, books, tombs, lastPushAt) {
+  /* Registros a subir: lo marcado como pendiente (tracker.dirty) y, además, lo modificado o borrado después de la
+     última subida (así se suben también los datos de versiones anteriores, que no llevaban la lista de pendientes). */
+  function collectPush(tasks, books, tombs, lastPushAt, tracker) {
+    const dirty = (tracker && tracker.dirty) || {};
     const out = [];
     [["tasks", tasks], ["books", books]].forEach(([col, list]) => list.forEach((rec) => {
-      if (!rec.isNew && rec.updatedAt > lastPushAt) out.push({ id: rec.id, col, updatedAt: rec.updatedAt, deleted: 0, data: JSON.stringify(rec) });
+      if (rec.isNew) return;
+      if (rec.updatedAt > lastPushAt || dirty[col + ":" + rec.id] !== undefined) out.push({ id: rec.id, col, updatedAt: rec.updatedAt, deleted: 0, data: JSON.stringify(rec) });
     }));
-    tombs.forEach((t) => { if (t.updatedAt > lastPushAt) out.push({ id: t.id, col: t.col, updatedAt: t.updatedAt, deleted: 1, data: "" }); });
+    tombs.forEach((t) => {
+      if (t.updatedAt > lastPushAt || dirty[t.col + ":" + t.id] !== undefined) out.push({ id: t.id, col: t.col, updatedAt: t.updatedAt, deleted: 1, data: "" });
+    });
     return out;
+  }
+
+  /* Tras una subida correcta: deja de estar pendiente lo que no volvió a cambiar mientras se subía. */
+  function clearPushed(tracker, pushed) {
+    if (!tracker || !tracker.dirty) return;
+    pushed.forEach((r) => {
+      const key = r.col + ":" + r.id;
+      if (tracker.dirty[key] !== undefined && tracker.dirty[key] <= r.updatedAt) delete tracker.dirty[key];
+    });
   }
 
   /* Aplica registros del servidor a una colección. busy = ids en edición (se difieren). */
@@ -83,6 +102,7 @@
           if (busy && busy.has(rec.id)) { res.deferred.push(rec); return; }
           list.splice(i, 1);
           delete tracker.known[col][rec.id]; delete tracker.sigs[col + ":" + rec.id];
+          if (tracker.dirty) delete tracker.dirty[col + ":" + rec.id];
           res.changed = true;
         }
         if (!local || local.updatedAt <= rec.updatedAt) {
@@ -99,6 +119,7 @@
       if (i >= 0) list[i] = data; else list.unshift(data);
       if (tIdx >= 0) tombs.splice(tIdx, 1);
       tracker.sigs[col + ":" + rec.id] = sig(data); tracker.known[col][rec.id] = true;
+      if (tracker.dirty) delete tracker.dirty[col + ":" + rec.id]; // lo de aquí quedó reemplazado: ya no hay nada que subir
       res.changed = true;
     });
     return res;
@@ -140,7 +161,7 @@
     } catch { return null; }
   }
 
-  const api = { deriveKey, importRawKey, encryptText, decryptText, b64u, makeCode, normalizeCode, isValidCode, formatCode, spaceId, newTracker, prime, stampChanges, collectPush, mergeIncoming, purgeTombs };
+  const api = { deriveKey, importRawKey, encryptText, decryptText, b64u, makeCode, normalizeCode, isValidCode, formatCode, spaceId, newTracker, prime, stampChanges, collectPush, clearPushed, mergeIncoming, purgeTombs };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Sync = api;
 })(typeof self !== "undefined" ? self : this);

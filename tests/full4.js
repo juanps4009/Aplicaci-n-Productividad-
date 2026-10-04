@@ -43,7 +43,7 @@ const assert = require('assert');
   await p.keyboard.type('/titulo'); await p.keyboard.press('Enter'); await p.keyboard.type('Introducción'); await p.keyboard.press('Enter');
   for (let i=0;i<10;i++){ await p.keyboard.type('Las pequeñas mejoras se acumulan con el tiempo. '.repeat(4)); await p.keyboard.press('Enter'); }
   await p.keyboard.type('/titulo'); await p.keyboard.press('Enter'); await p.keyboard.type('Conclusión'); await p.keyboard.press('Enter'); await p.keyboard.type('Sistemas sobre metas.');
-  await p.click('[data-action=save]');
+  await p.click('[data-action=done]');
   assert(await p.locator('#book-page:not(.hidden) .dot-rail button').count()===2); ok('guardar deja la página en vista');
   await p.click('#book-page .dot-rail button:nth-child(2)'); await p.waitForTimeout(1200);
   console.log('activo:', await p.$eval('#book-page .dot-rail button.active', e=>e.getAttribute('aria-label')));
@@ -53,7 +53,7 @@ const assert = require('assert');
   await p.evaluate(()=>document.querySelector('#book-page').scrollTop=0);
   await p.click('#book-bar-actions [data-action=edit]');
   assert(await p.locator('#book-back.hidden').count()===1);
-  await p.click('[data-action=cancel]');
+  await p.click('[data-action=done]');
   assert(await p.locator('#book-page:not(.hidden) .page-title').count()===1); ok('cancelar edición vuelve a la vista');
   await p.click('#book-back');
   assert(await p.locator('.book-card').count()===2); ok('lista con 2 libros');
@@ -64,7 +64,7 @@ const assert = require('assert');
   await p.click('#confirm-ok');
   assert(await p.locator('.book-card').count()===1 && await p.locator('#book-page.hidden').count()===1); ok('eliminar desde la página');
   // nuevo + cancelar
-  await p.click('#new-book'); await p.click('[data-action=cancel]');
+  await p.click('#new-book'); await p.click('[data-action=done]');
   assert(await p.locator('.book-card').count()===1 && await p.locator('#book-page.hidden').count()===1); ok('cancelar nuevo');
   await p.reload();
   assert(await p.locator('.book-card').count()===1); ok('persiste');

@@ -53,7 +53,7 @@ assert(await A.locator('#sync-card [data-action=sync-create]').isVisible()); ok(
 assert.strictEqual(await A.locator('#sync-badge.hidden').count(), 1);
 // ---- A crea datos previos y se conecta
 await addTask(A, 'Tarea A1'); await addTask(A, 'Tarea A2');
-await A.click('.nav-btn[data-tab=books]'); await A.click('#new-book'); await A.fill('[data-field=title]', 'Libro de A'); await A.fill('[data-field=author]', 'Autor A'); await A.click('[data-action=save]'); await A.click('#book-back');
+await A.click('.nav-btn[data-tab=books]'); await A.click('#new-book'); await A.fill('[data-field=title]', 'Libro de A'); await A.fill('[data-field=author]', 'Autor A'); await A.click('[data-action=done]'); await A.click('#book-back');
 await A.click('.nav-btn[data-tab=tasks]'); await openSettings(A);
 await openSettings(A); await A.waitForTimeout(500); await A.waitForSelector('[data-action=sync-create]'); assert.strictEqual(await A.locator('#server-adv').evaluate(e=>e.open), false); ok('con servidor de la app: se puede crear código sin configurar nada (servidor propio plegado)');
 await A.click('[data-action=sync-create]'); await A.waitForSelector('.code-box'); await A.click('#close-settings'); assert.strictEqual(await A.locator('#sync-badge:not(.hidden)').count(), 1); await A.click('#open-sync');
@@ -95,6 +95,25 @@ await B.waitForTimeout(2600); await syncA();
 assert((await A.locator('.task-item:has-text("Tarea A1") .due-label').innerText()).includes('🔔')); assert.strictEqual(await A.locator('.att-row').count(), 0); ok('el recordatorio llega a A sin avisos atrasados');
 const remA = await A.evaluate(() => JSON.parse(localStorage.getItem('prod.tasks')).flatMap(t => t.reminders)); assert(remA.every(r => r.lastFired === undefined && r.acked === undefined)); ok('el estado de "ya sonó" no viaja en los datos sincronizados');
 await openSettings(A); await A.click('#notify-switch'); assert.strictEqual(await A.locator('#notify-switch').getAttribute('aria-checked'), 'false'); await A.click('#notify-switch'); await A.click('#close-settings'); ok('interruptor de avisos por dispositivo');
+
+// ---- resúmenes: se guardan y sincronizan solos (sin pulsar «Guardar»), y el que está abierto en el otro dispositivo se actualiza
+await B.click('.nav-btn[data-tab=books]'); await B.click('.book-open'); await B.click('#book-bar-actions [data-action=edit]'); // B lo tiene abierto en edición, sin escribir
+assert.strictEqual(await B.locator('#book-bar-label').innerText(), 'Se guarda automáticamente'); assert.strictEqual(await B.locator('[data-action=done]').count(), 1);
+await A.click('.nav-btn[data-tab=books]'); await A.click('.book-open'); await A.click('#book-bar-actions [data-action=edit]');
+await A.click('.sec-editor[data-section=ideas]'); await A.keyboard.type('idea escrita sin guardar');
+await A.waitForTimeout(2200); // guardado automático (0,5 s) + subida (0,8 s)
+assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod.books'))))[0].ideas, 'idea escrita sin guardar'); ok('el resumen se guarda solo mientras se escribe');
+assert.strictEqual(await A.locator('#open-sync').getAttribute('aria-label'), 'Sincronizado'); assert.deepStrictEqual(await A.evaluate(() => JSON.parse(localStorage.getItem('prod.sync')).dirty), {}); ok('…y se sube solo (nada pendiente; la nube de la cabecera dice «Sincronizado»)');
+await B.evaluate(() => window.dispatchEvent(new Event('online'))); // B consulta (lo hace solo cada 20 s, al volver a la ventana o al recuperar conexión)
+await B.waitForFunction(() => document.querySelector('.sec-editor[data-section=ideas]')?.innerText.includes('idea escrita sin guardar'), null, { timeout: 5000 }); ok('B, con ese resumen abierto en edición, lo ve actualizarse sin cerrar nada');
+await B.click('[data-field=title]'); await B.keyboard.press('End'); await B.keyboard.type(' (visto en PC)'); await B.waitForTimeout(2200);
+await A.evaluate(() => window.dispatchEvent(new Event('online')));
+await A.waitForFunction(() => document.querySelector('#book-detail [data-field=title]')?.innerText === 'Libro de A (visto en PC)', null, { timeout: 5000 });
+assert.strictEqual(await A.locator('.sec-editor[data-section=ideas]').innerText(), 'idea escrita sin guardar'); ok('y lo que B cambia vuelve a A (título), conservando lo demás');
+await A.click('.sec-editor[data-section=notes]'); await A.keyboard.type('a medio escribir'); await A.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
+assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod.books'))))[0].notes, 'a medio escribir'); await A.reload();
+await A.click('.book-open'); assert((await A.locator('#book-detail .box.notes p').innerText()).includes('a medio escribir')); ok('cerrar o recargar a mitad de edición no pierde lo escrito');
+await A.click('#book-back'); await A.click('.nav-btn[data-tab=tasks]'); await B.click('[data-action=done]'); await B.click('#book-back'); await B.click('.nav-btn[data-tab=tasks]');
 
 // ---- QR y enlace de vinculación
 await openSettings(A); await A.click('[data-action=sync-qr]'); assert.strictEqual(await A.locator('.qr-box svg').count(), 1); await A.screenshot({ path: '/tmp/v10-qr.png' }); await A.click('[data-action=sync-qr]'); await A.click('#close-settings');

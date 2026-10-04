@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.14.0-beta";
+const APP_VERSION = "0.15.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -89,6 +89,8 @@ const APP = window.APP_CONFIG || {};
 /* Servidor efectivo: el propio del usuario (avanzado) o el de la app, sin que nadie cree nada */
 const serverUrl = () => state.settings.serverUrl || APP.server || "";
 const tracker = Sync.newTracker();
+// Pendientes de subir: se guardan con los datos de sincronización para no perderlos al recargar
+if (state.sync.dirty && typeof state.sync.dirty === "object") tracker.dirty = state.sync.dirty;
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
@@ -267,6 +269,7 @@ function commitTasks() {
   Sync.stampChanges("tasks", state.tasks, tracker, state.tombs, Date.now());
   save(KEYS.tasks, state.tasks);
   save(KEYS.tomb, state.tombs);
+  saveSync();
   schedulePushSync();
   scheduleSync();
 }
@@ -274,6 +277,7 @@ function commitBooks() {
   Sync.stampChanges("books", state.books, tracker, state.tombs, Date.now());
   save(KEYS.books, state.books);
   save(KEYS.tomb, state.tombs);
+  saveSync();
   scheduleSync();
 }
 function persistTasks() { commitTasks(); renderTasks(); }
@@ -448,7 +452,7 @@ function renderSettings() {
   ss.classList.toggle("rem-error", serverStatus.kind === "error");
   renderSyncBody();
   renderWidgetBlock();
-  $("#sync-badge").classList.toggle("hidden", !syncLinked());
+  renderSyncIcon();
 }
 
 $("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
@@ -748,7 +752,15 @@ function runReminders() {
     renderTasks();
   }
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { runReminders(); schedulePushSync(); scheduleSync(300); } });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { runReminders(); schedulePushSync(); scheduleSync(200); return; }
+  flushEdits(); // al ocultar o cerrar la app: guardar lo que esté a medio escribir y subirlo ya
+  clearTimeout(syncTimer);
+  syncNow();
+});
+window.addEventListener("pagehide", () => { flushEdits(); });
+// Al volver a la ventana, al recuperar la conexión o al restaurar la página: traer lo nuevo enseguida
+["focus", "online", "pageshow"].forEach((ev) => window.addEventListener(ev, () => { if (!document.hidden) scheduleSync(200); }));
 
 /* ---------- Avisos con la app cerrada (servidor de avisos / push) ---------- */
 /* La app le manda al servidor los próximos avisos; el servidor los entrega a la hora exacta aunque
@@ -883,10 +895,10 @@ $("#push-switch").addEventListener("click", () => (state.settings.pushOn ? disab
 /* ---------- Servidor y sincronización entre dispositivos ---------- */
 let serverStatus = { kind: "idle", text: "" };
 let syncInfo = { kind: "idle", text: "", at: 0 };
-let syncTimer = null, syncing = false, qrOpen = false;
+let syncTimer = null, syncing = false, syncFails = 0, qrOpen = false;
 
 const syncLinked = () => !!(serverUrl() && state.sync.space);
-const saveSync = () => save(KEYS.sync, state.sync);
+const saveSync = () => { state.sync.dirty = tracker.dirty; save(KEYS.sync, state.sync); };
 
 async function connectServer() {
   const url = $("#server-url").value.trim().replace(/\/+$/, "");
@@ -1066,13 +1078,57 @@ function renderWidgetBlock() {
   }
 }
 
-/* Ids que se están editando ahora mismo: no se pisan con datos que llegan */
-const busyIds = () => new Set([...state.editing, ...state.drafts.keys(), state.editingTask, state.notesTask].filter(Boolean));
+/* Lo que se está escribiendo ahora mismo no se pisa con datos que llegan: esperan unos segundos a que dejes de teclear.
+   (Antes un resumen o unas notas abiertas bloqueaban lo que llegaba hasta cerrarlos.) */
+const TYPING_MS = 4000;
+const lastTyped = {};
+const touchTyping = (id) => { if (id) lastTyped[id] = Date.now(); };
+const isTyping = (id) => Date.now() - (lastTyped[id] || 0) < TYPING_MS;
+const busyIds = () => new Set([state.editingTask, ...[state.notesTask, ...state.editing].filter((id) => id && isTyping(id))].filter(Boolean));
 
-function scheduleSync(delay = 2000) {
+function scheduleSync(delay = 800) {
   if (!syncLinked()) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(syncNow, delay);
+}
+
+/* Icono de nube de la cabecera: muestra si está sincronizando, al día o con error (sin abrir Ajustes) */
+function renderSyncIcon() {
+  const btn = $("#open-sync");
+  const linked = syncLinked();
+  const error = linked && syncInfo.kind === "error";
+  btn.classList.toggle("is-syncing", linked && syncing);
+  btn.classList.toggle("is-error", error && !syncing);
+  $("#sync-badge").classList.toggle("hidden", !linked);
+  const label = !linked ? "Sincronizar mis dispositivos" : syncing ? "Sincronizando…" : error ? `Sin sincronizar: ${syncInfo.text}` : "Sincronizado";
+  btn.setAttribute("aria-label", label);
+  btn.title = label;
+}
+
+/* Registros abiertos en un editor (notas de una tarea, resúmenes en edición) con su sello, para saber si cambiaron al sincronizar */
+function openStamps() {
+  const out = {};
+  const t = state.notesTask && state.tasks.find((x) => x.id === state.notesTask);
+  if (state.notesTask) out["t:" + state.notesTask] = t ? t.updatedAt : 0;
+  state.editing.forEach((id) => { const b = state.books.find((x) => x.id === id); out["b:" + id] = b ? b.updatedAt : 0; });
+  return out;
+}
+
+/* Si llegó una versión más nueva de algo que está abierto, se vuelve a dibujar con lo nuevo */
+function refreshOpenEditors(before) {
+  if (state.notesTask) {
+    const task = state.tasks.find((x) => x.id === state.notesTask);
+    if (!task) closeNotes(); // lo borraron en otro dispositivo
+    else if (task.updatedAt !== before["t:" + task.id]) { clearTimeout(notesTimer); fillNotes(task); }
+  }
+  [...state.editing].forEach((id) => {
+    const book = state.books.find((x) => x.id === id);
+    if (!book) { endEdit(id); if (state.openBook === id) state.openBook = null; renderBooks(); return; }
+    if (book.updatedAt === before["b:" + id]) return;
+    clearTimeout(bookTimer); bookTimerId = null;
+    state.drafts.set(id, { template: "blocks", doc: [], ...clone(book) });
+    if (state.openBook === id) renderBookPage();
+  });
 }
 
 let syncKeyPromise = null;
@@ -1088,22 +1144,27 @@ async function syncNow() {
   if (!syncLinked()) return;
   if (syncing) return scheduleSync(1500);
   syncing = true;
+  renderSyncIcon();
   const t0 = Date.now();
   const server = serverUrl();
+  let retry = 0;
   try {
     commitTasksQuiet();
     const key = await getSyncKey();
     if (state.sync.v !== 2) { // datos subidos sin cifrar por versiones anteriores: bajar todo y volver a subirlo cifrado
       Object.assign(state.sync, { lastSeq: 0, lastPushAt: 0, v: 2 });
     }
-    const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt);
+    const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt, tracker);
+    const pushed = [...pending];
+    const open = openStamps();
     let since = state.sync.lastSeq, deferred = 0, changed = false, more = false;
     do {
       const chunk = await Promise.all(pending.splice(0, 100).map(async (r) => (
         r.deleted ? r : { ...r, data: await Sync.encryptText(key, r.data, `${r.id}|${r.col}`) })));
+      const body = JSON.stringify({ space: state.sync.space, since, records: chunk });
       const res = await fetch(`${server}/space/sync`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ space: state.sync.space, since, records: chunk }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body,
+        keepalive: document.hidden && body.length < 60000, // al cerrar la app, que la subida termine igual
       });
       if (!res.ok) throw new Error(SYNC_ERRORS[res.status] || `El servidor respondió ${res.status}`);
       const data = await res.json();
@@ -1124,25 +1185,32 @@ async function syncNow() {
       more = data.more;
     } while (pending.length || more);
     if (!deferred) state.sync.lastSeq = since; // si algo quedó en espera, se vuelve a pedir después
+    else retry = TYPING_MS + 500;              // …en cuanto dejes de teclear
     state.sync.lastPushAt = t0;
+    Sync.clearPushed(tracker, pushed);
     state.tombs = Sync.purgeTombs(state.tombs, Date.now(), 60);
     saveSync();
     save(KEYS.tasks, state.tasks);
     save(KEYS.books, state.books);
     save(KEYS.tomb, state.tombs);
     syncInfo = { kind: "ok", text: "", at: Date.now() };
+    syncFails = 0;
     if (changed) {
       if (pendingFocus && focusTask(pendingFocus)) pendingFocus = null;
       runReminders();
       if (state.editingTask === null) renderTasks();
       if (state.editing.size) renderBookList(); else renderBooks();
+      refreshOpenEditors(open);
       schedulePushSync();
     }
   } catch (err) {
     syncInfo = { kind: "error", at: 0, text: err && err.name === "TypeError" ? "Sin conexión con el servidor; se reintentará." : err.message };
+    syncFails++;
+    retry = Math.min(60000, 4000 * 2 ** Math.min(syncFails, 4)); // reintento con espera creciente
   } finally {
     syncing = false;
     renderSettings();
+    if (retry) scheduleSync(retry);
   }
 }
 
@@ -1405,6 +1473,9 @@ function backspaceAtStart(blk) {
 
 /* opts.plain: sin menú "/" (cuadros de los resúmenes por bloques: solo párrafos, una idea por línea) */
 function mountEditor(root, blocks, onChange = () => {}, opts = {}) {
+  // El editor de notas es siempre el mismo elemento: al volver a montarlo se quitan los escuchas anteriores
+  if (root._mount) root._mount.abort();
+  const signal = (root._mount = new AbortController()).signal;
   root.innerHTML = "";
   (blocks.length ? blocks : [{ type: "p", text: "" }]).forEach((b) => root.appendChild(makeBlock(b)));
   refreshEmpty(root);
@@ -1423,8 +1494,8 @@ function mountEditor(root, blocks, onChange = () => {}, opts = {}) {
       backspaceAtStart(blk);
       changed();
     }
-  });
-  root.addEventListener("input", () => { normalizeRoot(root); if (!opts.plain) checkSlash(root); changed(); });
+  }, { signal });
+  root.addEventListener("input", () => { normalizeRoot(root); if (!opts.plain) checkSlash(root); changed(); }, { signal });
   root.addEventListener("keydown", (e) => {
     if (!slash.open || slash.root !== root) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -1433,8 +1504,8 @@ function mountEditor(root, blocks, onChange = () => {}, opts = {}) {
       slash.index = (slash.index + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
       checkSlash(root);
     } else if (e.key === "Escape") { e.preventDefault(); closeSlash(); }
-  });
-  root.addEventListener("blur", closeSlash);
+  }, { signal });
+  root.addEventListener("blur", closeSlash, { signal });
   root.addEventListener("paste", (e) => {
     e.preventDefault();
     const txt = (e.clipboardData || window.clipboardData).getData("text/plain").replace(/\r/g, "");
@@ -1460,7 +1531,7 @@ function mountEditor(root, blocks, onChange = () => {}, opts = {}) {
       setCaret(last, lines[lines.length - 1].length);
     }
     changed();
-  });
+  }, { signal });
 }
 
 /* ---------- Página de notas de una tarea (editor con comandos "/") ---------- */
@@ -1473,18 +1544,24 @@ function saveNotes() {
   commitTasks();
 }
 
-function openNotes(task) {
-  state.notesTask = task.id;
+/* Dibuja la página de notas con los datos de la tarea (también cuando llega una versión más nueva de otro dispositivo) */
+function fillNotes(task) {
   $("#notes-title").innerHTML = RT.toHTML(task.text, task.marks);
   const label = PRIORITIES.find((p) => p.key === task.priority)?.label ?? "";
   $("#notes-meta").innerHTML = `
     <span class="chip"><span class="dot" style="--prio:var(--${task.priority})"></span>Prioridad ${label.toLowerCase()}</span>
     ${task.due ? `<span class="chip">📅 ${dueLabel(task.due)}</span>` : ""}`;
-  const editor = $("#notes-editor");
-  mountEditor(editor, task.doc || [], () => {
+  mountEditor($("#notes-editor"), task.doc || [], () => {
+    touchTyping(task.id);
     clearTimeout(notesTimer);
     notesTimer = setTimeout(saveNotes, 250);
   });
+}
+
+function openNotes(task) {
+  state.notesTask = task.id;
+  fillNotes(task);
+  const editor = $("#notes-editor");
   $("#notes-page").classList.remove("hidden");
   $("#notes-page").scrollTop = 0;
   document.body.classList.add("no-scroll");
@@ -1557,10 +1634,7 @@ function bookEditHTML(d) {
         </div>
       </div>
       ${editor}
-      <div class="flex gap-2">
-        <button data-action="cancel" class="btn-secondary flex-1 py-3">Cancelar</button>
-        <button data-action="save" class="btn-primary flex-1 py-3">Guardar</button>
-      </div>
+      <button data-action="done" class="btn-primary w-full py-3">Listo</button>
     </div>`;
 }
 
@@ -1591,15 +1665,16 @@ function renderBookPage() {
   document.body.classList.add("no-scroll");
   $("#book-back").classList.toggle("hidden", editing);
   $("#book-bar-actions").classList.toggle("hidden", editing);
-  $("#book-bar-label").textContent = editing ? "Editando" : "";
+  $("#book-bar-label").textContent = editing ? "Se guarda automáticamente" : "";
   $("#book-detail").innerHTML = editing ? bookEditHTML(state.drafts.get(book.id)) : bookPageViewHTML(book);
   const draft = state.drafts.get(book.id);
   const ed = $("#book-detail .editor:not(.sec-editor)");
-  if (ed) mountEditor(ed, draft.doc);
+  const autosave = () => scheduleBookSave(book.id);
+  if (ed) mountEditor(ed, draft.doc, autosave);
   $$("#book-detail .sec-editor").forEach((el) => { // los cuadros por bloques: una línea = un bloque de texto
     const s = SECTIONS.find((x) => x.key === el.dataset.section);
     el.style.setProperty("--ph", JSON.stringify(s.hint));
-    mountEditor(el, linesToBlocks(draft[s.key], draft[s.key + "Marks"]), () => {}, { plain: true });
+    mountEditor(el, linesToBlocks(draft[s.key], draft[s.key + "Marks"]), autosave, { plain: true });
   });
   updateActiveDots();
 }
@@ -1702,6 +1777,7 @@ function onBookClick(e) {
     syncDraft(card, d);
     d.template = btn.dataset.value;
     renderBooks();
+    scheduleBookSave(book.id);
     return;
   }
 
@@ -1727,30 +1803,60 @@ function onBookClick(e) {
         persistBooks();
       });
       break;
-    case "cancel":
+    case "done": // «Listo»: todo se guardó solo; aquí solo se termina la edición
+      saveBookDraft(book.id);
       endEdit(book.id);
-      if (book.isNew) { state.books = state.books.filter((b) => b.id !== book.id); state.openBook = null; }
+      if (book.isNew) { state.books = state.books.filter((b) => b.id !== book.id); state.openBook = null; } // quedó vacío: no se crea
       renderBooks();
       break;
-    case "save": {
-      syncDraft(card, d);
-      ["title", "author", ...SECTIONS.map((s) => s.key)].forEach((k) => {
-        const m = RT.trim({ text: d[k] || "", marks: d[k + "Marks"] });
-        d[k] = m.text;
-        if (m.marks.length) d[k + "Marks"] = m.marks;
-        else { delete d[k + "Marks"]; delete book[k + "Marks"]; }
-      });
-      d.doc = trimDoc(d.doc);
-      delete d.isNew;
-      delete book.isNew;
-      Object.assign(book, d);
-      state.settings.lastTemplate = d.template;
-      save(KEYS.settings, state.settings);
-      endEdit(book.id);
-      persistBooks();
-      break;
-    }
   }
+}
+
+/* ---- Guardado automático de un resumen en edición (como las notas): se guarda y sincroniza mientras escribes ---- */
+let bookTimer = null, bookTimerId = null;
+
+function scheduleBookSave(id) {
+  touchTyping(id);
+  clearTimeout(bookTimer);
+  bookTimerId = id;
+  bookTimer = setTimeout(() => saveBookDraft(id), 500);
+}
+
+function saveBookDraft(id) {
+  if (bookTimerId === id) { clearTimeout(bookTimer); bookTimerId = null; }
+  const book = state.books.find((b) => b.id === id), d = state.drafts.get(id);
+  if (!book || !d) return;
+  const page = $("#book-page");
+  if (page.dataset.book === id && !page.classList.contains("hidden") && state.editing.has(id)) syncDraft(page, d);
+  // Se guarda una copia recortada; el borrador en pantalla no se toca (para no mover el cursor mientras escribes)
+  const out = clone(d);
+  delete out.updatedAt;
+  ["title", "author", ...SECTIONS.map((s) => s.key)].forEach((k) => {
+    const m = RT.trim({ text: out[k] || "", marks: out[k + "Marks"] });
+    out[k] = m.text;
+    if (m.marks.length) out[k + "Marks"] = m.marks;
+    else { delete out[k + "Marks"]; delete book[k + "Marks"]; }
+  });
+  out.doc = trimDoc(out.doc || []);
+  const hasContent = out.title || out.author || SECTIONS.some((s) => out[s.key]) || out.doc.length;
+  if (book.isNew && !hasContent) return; // un resumen nuevo no existe (ni se sincroniza) hasta que tiene algo escrito
+  delete out.isNew; delete book.isNew; delete d.isNew;
+  Object.assign(book, out);
+  if (state.settings.lastTemplate !== out.template) { state.settings.lastTemplate = out.template; save(KEYS.settings, state.settings); }
+  commitBooks();
+  renderBookList();
+}
+
+/* Título y autor (campos de una línea) también disparan el guardado automático */
+$("#book-page").addEventListener("input", (e) => {
+  const id = $("#book-page").dataset.book;
+  if (id && state.editing.has(id) && e.target.closest(".rt-line[data-field]")) scheduleBookSave(id);
+});
+
+/* Guarda ya lo que esté a medio escribir (al ocultar o cerrar la app) */
+function flushEdits() {
+  if (state.notesTask) { clearTimeout(notesTimer); saveNotes(); }
+  if (bookTimerId) saveBookDraft(bookTimerId);
 }
 $("#book-list").addEventListener("click", onBookClick);
 $("#book-page").addEventListener("click", onBookClick);
@@ -1783,5 +1889,5 @@ handleLinkHash();
 handleTaskHash();
 window.addEventListener("hashchange", () => { handleLinkHash(); handleTaskHash(); });
 scheduleSync(300);
-setInterval(() => { if (!document.hidden) scheduleSync(0); }, 60000);
+setInterval(() => { if (!document.hidden) scheduleSync(0); }, 20000); // con la app a la vista, mira si hay cambios cada 20 s
 setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
