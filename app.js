@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.17.0-beta";
+const APP_VERSION = "0.18.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -58,7 +58,9 @@ const state = {
   tasks: loadList(KEYS.tasks, migrateTask),
   books: loadList(KEYS.books, migrateBook),
   routine: [],             // rutina: ítems, marcas por periodo y comentarios semanales (se llena con setRoutine)
-  routineOther: [],        // registros de rutina que esta versión no entiende: se conservan y sincronizan sin tocarlos
+  work: [],                // trabajo: oportunidades (viajan por el mismo canal que la rutina)
+  workAll: false,          // en «Trabajo», mostrar también las descartadas
+  routineOther: [],        // registros de ese canal que esta versión no entiende: se conservan y sincronizan sin tocarlos
   routineView: "today",    // "today" o "week" (resumen semanal)
   routineWeek: null,       // semana que se mira en el resumen (null = la actual)
   routineEdit: false,      // modo «editar rutina»
@@ -80,17 +82,20 @@ const state = {
   editingTask: null,       // id de tarea en edición
 };
 
-/* Reparte los registros de la rutina: los válidos (saneados) a state.routine y el resto a routineOther */
+/* Reparte los registros del canal de la rutina: la rutina (saneada) a state.routine, las oportunidades a state.work
+   y lo que esta versión no entiende a routineOther */
 function setRoutine(all) {
   state.routine = [];
+  state.work = [];
   state.routineOther = [];
   (Array.isArray(all) ? all : []).forEach((r) => {
-    const c = Routine.clean(r);
+    const c = Routine.clean(r), w = c ? null : Work.clean(r);
     if (c) state.routine.push(c);
+    else if (w) state.work.push(w);
     else if (r && typeof r === "object" && typeof r.id === "string" && r.id) state.routineOther.push(r);
   });
 }
-const routineAll = () => [...state.routine, ...state.routineOther];
+const routineAll = () => [...state.routine, ...state.work, ...state.routineOther];
 setRoutine(load(KEYS.routine, []));
 
 /* Migraciones de datos guardados por versiones anteriores */
@@ -162,7 +167,7 @@ function askConfirm(message, okLabel = "Eliminar") {
 }
 
 /* ---------- Navegación ---------- */
-const TITLES = { tasks: "Pendientes", routine: "Rutina", books: "Resúmenes" };
+const TITLES = { tasks: "Pendientes", routine: "Rutina", work: "Trabajo", books: "Resúmenes" };
 
 function showTab(tab) {
   state.tab = tab;
@@ -170,7 +175,9 @@ function showTab(tab) {
   $("#tab-tasks").classList.toggle("hidden", tab !== "tasks");
   $("#tab-routine").classList.toggle("hidden", tab !== "routine");
   $("#tab-books").classList.toggle("hidden", tab !== "books");
+  $("#tab-work").classList.toggle("hidden", tab !== "work");
   if (tab === "routine") renderRoutine();
+  if (tab === "work") renderWork();
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $("#page-title").textContent = TITLES[tab];
   $("#open-filter").classList.toggle("hidden", tab !== "tasks");
@@ -1241,6 +1248,7 @@ async function syncNow() {
     syncInfo = { kind: "ok", text: "", at: Date.now() };
     syncFails = 0;
     if (routineChanged && state.tab === "routine" && $("#routine-sheet").classList.contains("hidden")) renderRoutine();
+    if (routineChanged && state.tab === "work" && !workDraft) renderWork();
     if (changed) {
       if (pendingFocus && focusTask(pendingFocus)) pendingFocus = null;
       runReminders();
@@ -1956,7 +1964,16 @@ function routineTodayHTML() {
       </section>`;
   }).join("");
   const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
+  // Tarjeta «Tu semana»: porcentaje de la semana y un punto por día; al tocarla se abre el resumen semanal
+  const wk = Routine.weekStats(state.routine, Routine.weekKey(date), date);
+  const dayTitle = (d, i) => `${Routine.DAY_NAME[i]}: ${d.state === "future" ? "aún no llega" : d.state === "empty" ? "no tocaba nada" : `${d.done} de ${d.total}`}`;
+  const weekCard = edit ? "" : `
+    <button class="card rt-week-card" data-action="rt-open-week" aria-label="Tu semana: ${wk.pct === null ? "sin datos" : `${wk.pct} por ciento`}. Ver el resumen semanal">
+      <span class="rt-week-info"><small>Tu semana</small><b id="routine-week-pct">${wk.pct === null ? "—" : `${wk.pct} %`}</b></span>
+      <span class="rt-dots">${wk.days.map((d, i) => `<span class="rt-dot d-${d.state}" title="${dayTitle(d, i)}"><i></i><small>${Routine.DAY_SHORT[i]}</small></span>`).join("")}</span>
+    </button>`;
   return `
+    ${weekCard}
     <div class="rt-top">
       <div>
         <p class="font-bold">${esc(capital(new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
@@ -2142,6 +2159,7 @@ $("#routine-body").addEventListener("click", (e) => {
       renderRoutine();
       break;
     case "rt-edit": state.routineEdit = !state.routineEdit; renderRoutine(); break;
+    case "rt-open-week": state.routineView = "week"; state.routineWeek = null; renderRoutine(); window.scrollTo(0, 0); break;
     case "rt-add": openRoutineSheet(null); break;
     case "rt-item-edit": if (item) openRoutineSheet(item); break;
     case "rt-up": case "rt-down":
@@ -2151,6 +2169,123 @@ $("#routine-body").addEventListener("click", (e) => {
       state.routineWeek = Routine.shiftWeek(state.routineWeek || Routine.weekKey(now), btn.dataset.action === "rt-week-prev" ? -1 : 1);
       if (state.routineWeek >= Routine.weekKey(now)) state.routineWeek = null;
       renderRoutine();
+      break;
+  }
+});
+
+/* ---------- Trabajo: oportunidades (ofertas y trabajos que quieres seguir) ----------
+   La lógica está en work.js. Se guardan y sincronizan por el mismo canal que la rutina (commitRoutine). */
+let workDraft = null;      // oportunidad que se está añadiendo o editando
+let workStatusId = null;   // oportunidad cuyo estado se está cambiando
+
+function renderWork() {
+  const now = today(), c = Work.counts(state.work);
+  const rows = Work.opps(state.work, { all: state.workAll });
+  const cards = rows.map((o) => {
+    const info = Work.closeInfo(o, now);
+    return `
+      <article class="wk-card s-${o.status}" data-id="${esc(o.id)}">
+        <div class="wk-head">
+          <h3 class="wk-title">${esc(o.title)}</h3>
+          <button class="wk-status s-${o.status}" data-action="wk-status" aria-label="Estado: ${Work.STATUS_LABEL[o.status]}. Cambiar">${Work.STATUS_LABEL[o.status]} ▾</button>
+        </div>
+        ${info ? `<p class="wk-close ${o.status === "discarded" || o.status === "replied" ? "" : info.level}">${esc(info.text)}</p>` : ""}
+        ${o.source ? `<p class="muted text-xs">Origen: ${esc(o.source)}</p>` : ""}
+        ${o.note ? `<p class="wk-note">${esc(o.note)}</p>` : ""}
+        <div class="wk-actions">
+          ${o.url ? `<a class="btn-secondary wk-link" href="${esc(o.url)}" target="_blank" rel="noopener noreferrer">Abrir oferta ↗</a>` : `<span class="muted text-xs">Sin enlace</span>`}
+          <button class="icon-btn" data-action="wk-edit" aria-label="Editar">✎</button>
+        </div>
+      </article>`;
+  }).join("");
+  $("#work-body").innerHTML = `
+    <button class="btn-primary w-full py-3" data-action="wk-add">+ Añadir oportunidad</button>
+    ${c.total ? `
+      <p class="muted mt-3 text-sm" id="work-count">${c.review} por revisar · ${c.applied} aplicada${c.applied === 1 ? "" : "s"} · ${c.replied} con respuesta</p>
+      <div class="seg mt-2" id="work-filter" role="tablist" aria-label="Qué oportunidades mostrar">
+        <button data-all="0" class="${state.workAll ? "" : "active"}" role="tab">Activas (${c.total - c.discarded})</button>
+        <button data-all="1" class="${state.workAll ? "active" : ""}" role="tab">Todas (${c.total})</button>
+      </div>` : ""}
+    <div class="wk-list">${cards}</div>
+    ${rows.length ? "" : `<p class="muted py-10 text-center">${c.total ? "No hay oportunidades activas." : "Aún no hay oportunidades. Aquí aparecerán las ofertas que quieras seguir, con su enlace y su fecha de cierre."}</p>`}`;
+}
+
+function renderWorkSheet() {
+  const d = workDraft;
+  $("#work-sheet-title").textContent = d.id ? "Editar oportunidad" : "Nueva oportunidad";
+  $("#work-sheet-body").innerHTML = `
+    <label class="setting-label" for="wk-title">Trabajo u oferta</label>
+    <input id="wk-title" class="field" maxlength="${Work.MAX_TITLE}" autocomplete="off" placeholder="Redactor remoto de fin de semana" value="${esc(d.title)}">
+    <label class="setting-label mt-3" for="wk-url">Enlace</label>
+    <input id="wk-url" class="field" type="url" inputmode="url" maxlength="${Work.MAX_URL}" autocomplete="off" placeholder="https://…" value="${esc(d.url)}">
+    <div class="flex gap-2 mt-3">
+      <div class="flex-1 min-w-0"><label class="setting-label" for="wk-closes">Cierra el</label><input id="wk-closes" class="field" type="date" value="${esc(d.closes)}"></div>
+      <div class="flex-1 min-w-0"><label class="setting-label" for="wk-state">Estado</label>
+        <select id="wk-state" class="field">${Work.STATUSES.map((s) => `<option value="${s}" ${d.status === s ? "selected" : ""}>${Work.STATUS_LABEL[s]}</option>`).join("")}</select></div>
+    </div>
+    <label class="setting-label mt-3" for="wk-note">Nota</label>
+    <textarea id="wk-note" class="field" rows="3" maxlength="${Work.MAX_NOTE}" placeholder="Pago, requisitos, a quién escribir…">${esc(d.note)}</textarea>
+    <p id="wk-error" class="rem-error mt-2 text-xs" role="alert"></p>
+    <button class="btn-primary mt-3 w-full py-3" data-action="wk-save">Guardar</button>
+    ${d.id ? `<button class="btn-danger-soft mt-2 w-full py-3" data-action="wk-delete">Eliminar</button>` : ""}`;
+}
+
+function openWorkSheet(opp) {
+  workDraft = opp ? { ...opp } : { id: null, title: "", url: "", closes: "", status: "review", note: "", source: "" };
+  renderWorkSheet();
+  openSheet("#work-sheet");
+  if (!opp) $("#wk-title").focus();
+}
+const closeWorkSheet = () => { closeSheet("#work-sheet"); workDraft = null; };
+$("#work-sheet-close").addEventListener("click", closeWorkSheet);
+$("#work-sheet").addEventListener("click", (e) => {
+  if (e.target === $("#work-sheet")) return closeWorkSheet();
+  const act = e.target.closest("[data-action]"), d = workDraft;
+  if (!act || !d) return;
+  if (act.dataset.action === "wk-save") {
+    const url = $("#wk-url").value.trim();
+    const data = { title: $("#wk-title").value, url, closes: $("#wk-closes").value, status: $("#wk-state").value, note: $("#wk-note").value, source: d.source };
+    const err = (t) => { $("#wk-error").textContent = t; };
+    if (!data.title.trim()) return err("Escribe el nombre del trabajo u oferta.");
+    if (url && !Work.cleanUrl(url)) return err("El enlace debe empezar con https:// y no llevar espacios.");
+    if (d.id) Work.update(state.work, d.id, data); else Work.add(state.work, data, Date.now(), uid());
+    commitRoutine();
+    closeWorkSheet();
+    renderWork();
+  } else if (act.dataset.action === "wk-delete") {
+    askConfirm(`¿Eliminar «${d.title}»?`).then((yes) => {
+      if (!yes) return;
+      Work.remove(state.work, d.id);
+      commitRoutine();
+      closeWorkSheet();
+      renderWork();
+    });
+  }
+});
+
+/* Cambiar el estado con un toque: se abre la lista de los cuatro estados */
+$("#work-status").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-status]");
+  if (b && workStatusId && Work.setStatus(state.work, workStatusId, b.dataset.status)) { commitRoutine(); renderWork(); }
+  if (b || e.target === $("#work-status")) { closeSheet("#work-status"); workStatusId = null; }
+});
+
+$("#work-body").addEventListener("click", (e) => {
+  const filter = e.target.closest("#work-filter [data-all]");
+  if (filter) { state.workAll = filter.dataset.all === "1"; renderWork(); return; }
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const card = btn.closest("[data-id]");
+  const opp = card && state.work.find((r) => r.id === card.dataset.id);
+  switch (btn.dataset.action) {
+    case "wk-add": openWorkSheet(null); break;
+    case "wk-edit": if (opp) openWorkSheet(opp); break;
+    case "wk-status":
+      if (!opp) break;
+      workStatusId = opp.id;
+      $("#work-status-title").textContent = opp.title;
+      $("#work-status-list").innerHTML = Work.STATUSES.map((s) => `<button data-status="${s}" class="${s === opp.status ? "active" : ""}">${Work.STATUS_LABEL[s]}${s === opp.status ? " ✓" : ""}</button>`).join("");
+      openSheet("#work-status");
       break;
   }
 });

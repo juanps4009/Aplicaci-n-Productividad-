@@ -218,9 +218,18 @@
     });
     const weekly = one("weekly"), monthly = started ? one("monthly") : [];
     weekly.forEach((x) => { if (x.done || x.closed) { due++; if (x.done) done++; } });
+    // Un resumen por día (para la tarjeta «Tu semana»): "full" todo hecho · "partial" algo · "miss" nada ·
+    // "today" hoy, aún sin terminar · "future" no ha llegado · "empty" ese día no tocaba nada
+    const days = dates.map((date, i) => {
+      const cells = daily.map((r) => r.cells[i]).filter((c) => c !== "na");
+      const d = cells.filter((c) => c === "done").length, total = cells.length;
+      const state = !total ? (date > todayDate ? "future" : "empty") : date > todayDate ? "future"
+        : d === total ? "full" : date === todayDate ? "today" : d ? "partial" : "miss";
+      return { date, done: d, total, state };
+    });
     return {
       week: wk, label: weekLabel(wk), dates, started, current: wk === weekKey(todayDate),
-      daily, weekly, monthly, month: monthKey(last),
+      daily, weekly, monthly, days, month: monthKey(last),
       done, due, pct: due ? Math.round((done / due) * 100) : null,
       review: list.find((r) => r.id === "r:" + wk && r.kind === "review") || null,
     };

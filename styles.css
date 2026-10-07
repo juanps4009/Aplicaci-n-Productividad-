@@ -463,4 +463,40 @@ a.btn-primary { display: block; }
 .rt-sum-list li.ok span { color: var(--low); }
 .rt-sum-list li.bad span { color: var(--danger); }
 .rt-review { padding: 1rem; }
+
+/* Rutina: tarjeta «Tu semana» (porcentaje y un punto por día) */
+.rt-week-card { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; padding: 0.75rem 1rem; margin-bottom: 0.9rem; text-align: left; }
+.rt-week-card:active { background: var(--surface-2); }
+.rt-week-info small { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.rt-week-info b { font-size: 1.5rem; font-weight: 800; line-height: 1.15; }
+.rt-dots { display: flex; gap: 0.4rem; }
+.rt-dot { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+.rt-dot i { width: 16px; height: 16px; border-radius: 9999px; background: var(--surface-2); border: 2px solid transparent; }
+.rt-dot small { font-size: 0.65rem; font-weight: 600; color: var(--muted); }
+.rt-dot.d-full i { background: var(--low); }
+.rt-dot.d-partial i { background: var(--medium); }
+.rt-dot.d-miss i { background: var(--danger); }
+.rt-dot.d-today i { background: transparent; border-color: var(--accent); }
+.rt-dot.d-today small { color: var(--accent); }
+.rt-dot.d-future i { background: transparent; border-color: var(--border); }
+.rt-dot.d-empty i { background: transparent; border: 2px dotted var(--border); }
+
+/* Trabajo: oportunidades */
+.wk-list { display: grid; gap: 0.75rem; margin-top: 0.9rem; }
+.wk-card { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0.85rem 1rem; display: grid; gap: 0.4rem; }
+.wk-card.s-discarded { opacity: 0.6; }
+.wk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; }
+.wk-title { font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.wk-status { flex-shrink: 0; min-height: 32px; padding: 0 0.7rem; border-radius: 9999px; font-size: 0.78rem; font-weight: 700; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.wk-status.s-review { background: color-mix(in srgb, var(--medium) 18%, transparent); color: var(--medium); }
+.wk-status.s-applied { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.wk-status.s-replied { background: color-mix(in srgb, var(--low) 18%, transparent); color: var(--low); }
+.wk-close { font-size: 0.85rem; color: var(--muted); }
+.wk-close.soon { color: var(--medium); font-weight: 600; }
+.wk-close.late { color: var(--danger); font-weight: 600; }
+.wk-note { font-size: 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wk-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.2rem; }
+.wk-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 0.9rem; font-size: 0.9rem; text-decoration: none; color: var(--text); }
+.menu-list button.active { font-weight: 700; color: var(--accent); }
+.bottom-nav .nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .rt-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }

@@ -48,6 +48,10 @@ let s = R.weekStats(L, '2026-W41', '2026-10-07');
 assert.deepStrictEqual(s.daily[0].cells, ['done', 'miss', 'done', 'future', 'future', 'future', 'future']); assert.strictEqual(s.daily[0].done, 2); assert.strictEqual(s.daily[0].due, 3); assert.strictEqual(s.daily[0].pct, 67);
 assert.deepStrictEqual(s.daily[1].cells, ['done', 'na', 'pending', 'na', 'future', 'na', 'na']); assert.strictEqual(s.daily[1].due, 1); assert.strictEqual(s.daily[1].pct, 100); // hoy sin marcar aún no cuenta como fallo
 assert(s.weekly[0].done && s.monthly[0].done && s.current && s.started); assert.strictEqual(s.done, 4); assert.strictEqual(s.due, 5); assert.strictEqual(s.pct, 80); assert.strictEqual(s.label, '5–11 oct');
+// un punto por día para la tarjeta «Tu semana»: lunes todo, martes nada, hoy a medias, el resto por llegar
+assert.deepStrictEqual(s.days.map((d) => d.state), ['full', 'miss', 'today', 'future', 'future', 'future', 'future']); assert.deepStrictEqual([s.days[0].done, s.days[0].total, s.days[2].done, s.days[2].total, s.days[1].total], [2, 2, 1, 2, 1]);
+assert.deepStrictEqual(R.weekStats(L, '2026-W42', '2026-10-25').days.map((d) => d.state), Array(7).fill('miss')); assert.deepStrictEqual(R.weekStats(L, '2026-W40', '2026-10-07').days.map((d) => d.state), Array(7).fill('empty'));
+R.setDone(L, item('i:x2'), '2026-10-07', true, 1); assert.strictEqual(R.weekStats(L, '2026-W41', '2026-10-07').days[2].state, 'full'); R.setDone(L, item('i:x2'), '2026-10-07', false, 1);
 assert.strictEqual(s.daily[0].streak, 1); R.setDone(L, item('i:x1'), '2026-10-06', true, 1); assert.strictEqual(R.streak(L, item('i:x1'), '2026-10-07'), 3); assert.strictEqual(R.streak(L, item('i:x1'), '2026-10-08'), 3); assert.strictEqual(R.streak(L, item('i:x1'), '2026-10-09'), 0);
 assert.strictEqual(R.streak(L, item('i:x2'), '2026-10-06'), 1); // los días que no tocan no rompen la racha
 // semana siguiente ya cerrada: lo no hecho cuenta como fallo; semana anterior: los ítems aún no existían

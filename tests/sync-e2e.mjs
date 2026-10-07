@@ -125,6 +125,14 @@ await B.waitForFunction(() => document.querySelector('.rt-item.done .rt-text')?.
 await B.locator('.rt-item [data-action=rt-toggle]').click(); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
 await A.waitForFunction(() => document.querySelectorAll('.rt-item').length === 1 && !document.querySelector('.rt-item.done'), null, { timeout: 5000 }); ok('B lo desmarca y A lo ve');
 await B.click('.nav-btn[data-tab=books]'); assert.strictEqual(await B.locator('.book-card').count(), 1); assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); ok('la rutina no aparece entre los resúmenes');
+// ---- oportunidades (pestaña Trabajo): mismo canal cifrado; el estado que cambia B vuelve a A
+await A.click('.nav-btn[data-tab=work]'); await A.click('[data-action=wk-add]'); await A.fill('#wk-title', 'Redactor remoto'); await A.fill('#wk-url', 'https://empleos.example.com/oferta/1'); await A.click('[data-action=wk-save]'); await A.waitForTimeout(1800);
+const opRows = env.DB.raw.prepare("SELECT col, data FROM records WHERE id LIKE 'rt:o:%'").all(); assert.strictEqual(opRows.length, 1); assert(opRows[0].col === 'books' && opRows[0].data.startsWith('e1:') && !/Redactor|empleos/.test(opRows[0].data));
+await B.click('.nav-btn[data-tab=work]'); await B.evaluate(() => window.dispatchEvent(new Event('online')));
+await B.waitForFunction(() => document.querySelector('.wk-card .wk-title')?.textContent === 'Redactor remoto', null, { timeout: 5000 }); assert.strictEqual(await B.locator('.wk-card a.wk-link').getAttribute('href'), 'https://empleos.example.com/oferta/1');
+await B.click('.wk-card [data-action=wk-status]'); await B.click('#work-status-list [data-status=applied]'); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
+await A.waitForFunction(() => document.querySelector('.wk-card .wk-status')?.textContent.startsWith('Apliqué'), null, { timeout: 5000 }); ok('oportunidades: creada en A, aparece en B; B la marca «apliqué» y A lo ve');
+assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod.routine')).filter((r) => r.kind === 'item'))).length, 1); ok('no se mezclan con los resúmenes ni con la rutina');
 await A.click('.nav-btn[data-tab=tasks]'); await B.click('.nav-btn[data-tab=tasks]');
 
 // ---- QR y enlace de vinculación

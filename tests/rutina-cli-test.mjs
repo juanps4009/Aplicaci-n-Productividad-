@@ -83,14 +83,51 @@ assert((await cli('ver')).includes('| Leer 20 páginas | – | – | ✓ |'));
 out = await cli('desmarcar', 'Leer'); assert(out.includes('Desmarcado')); assert((await cli('ver')).includes('| Leer 20 páginas | – | – | · |'));
 ok('convive con la app: ve lo marcado en otro dispositivo y sus cambios no se pierden por el reloj');
 
-// ---- sin archivo de código, o con otro código, no hay acceso
-await assert.rejects(run(['ver'], { ...base, code: undefined, codeFile: join(tmp, 'no-existe.txt') }), /Falta el archivo con tu código/);
-writeFileSync(join(tmp, 'malo.txt'), 'hola'); await assert.rejects(run(['ver'], { ...base, code: undefined, codeFile: join(tmp, 'malo.txt') }), /no contiene un código válido/);
-writeFileSync(join(tmp, 'bueno.txt'), '  ' + Sync.formatCode(code).toLowerCase() + '\r\n'); assert((await run(['revisar'], { ...base, code: undefined, codeFile: join(tmp, 'bueno.txt') })).includes('3 pendiente(s)'));
-const otro = Sync.makeCode(crypto.getRandomValues(new Uint8Array(20))); assert((await run(['ver'], { ...base, code: otro })).includes('_Sin pendientes diarios._'));
-for (const a of [['ver'], ['revisar'], ['exportar']]) assert(!(await cli(...a)).includes(code) && !(await cli(...a)).includes(Sync.formatCode(code)));
-assert((await run(['ayuda'], {})).includes('node herramientas/rutina.mjs'));
-ok('el código se lee de un archivo local, se valida y nunca se imprime; con otro código no se ve nada');
+// ---- tareas: Claude puede añadir a «Pendientes»; se guardan como registros «tasks» con la forma que usa la app
+clock += 1000; out = await cli('tarea', 'agregar', 'Enviar', 'hoja', 'de', 'vida', '--prioridad', 'alta', '--vence', '2026-10-09'); assert(out.includes('Tarea añadida: Enviar hoja de vida (prioridad alta, vence 2026-10-09)') && out.includes('Guardado en el servidor'));
+const trows = rows().filter((r) => r.col === 'tasks'); assert.strictEqual(trows.length, 1); assert(trows[0].data.startsWith('e1:') && !trows[0].id.startsWith('rt:'));
+const task = JSON.parse(await Sync.decryptText(key, trows[0].data, trows[0].id + '|tasks'));
+assert.deepStrictEqual({ id: task.id, text: task.text, done: task.done, priority: task.priority, due: task.due, reminders: task.reminders, doc: task.doc }, { id: trows[0].id, text: 'Enviar hoja de vida', done: false, priority: 'high', due: '2026-10-09', reminders: [], doc: [] });
+await assert.rejects(cli('tarea', 'agregar'), /Falta el texto/); await assert.rejects(cli('tarea', 'agregar', 'x', '--prioridad', 'urgente'), /Prioridad desconocida/); await assert.rejects(cli('tarea', 'agregar', 'x', '--vence', 'mañana'), /vencimiento inválida/); await assert.rejects(cli('tarea', 'borrar', 'x'), /solo se puede/);
+clock += 1000; await cli('marcar', 'resumen'); assert.strictEqual(rows().filter((r) => r.col === 'tasks').length, 1); // cambiar la rutina no toca ni duplica las tareas
+ok('tarea agregar: crea una tarea cifrada con la misma forma que la app');
+
+// ---- oportunidades: agregar sin duplicar, cambiar estado, editar, quitar
+clock += 1000; out = await cli('oportunidad', 'agregar', 'Redactor remoto de fin de semana', '--enlace', 'https://empleos.example.com/oferta/1', '--cierra', '2026-10-09', '--fuente', 'Radar', '--nota', 'Pago por artículo');
+assert(/Oportunidad añadida o:\w+: Redactor remoto de fin de semana \(por revisar, cierra 2026-10-09\)/.test(out));
+clock += 1000; out = await cli('oportunidad', 'agregar', 'La misma oferta otra vez', '--enlace', 'https://EMPLEOS.example.com/oferta/1/'); assert(out.includes('Ya estaba') && out.includes('No había nada que cambiar'));
+clock += 1000; await cli('oportunidad', 'agregar', 'Asistente virtual', '--estado', 'apliqué');
+out = await cli('oportunidades'); assert(out.includes('1 por revisar · 1 aplicadas') && out.includes('**Redactor remoto de fin de semana** — Por revisar — Cierra en 2 días · 9 oct') && out.includes('Origen: Radar') && out.includes('Nota: Pago por artículo'));
+clock += 1000; out = await cli('oportunidad', 'estado', 'Redactor', 'me', 'respondieron'); assert(out.includes('(me respondieron, cierra 2026-10-09)'));
+clock += 1000; await cli('oportunidad', 'estado', 'https://empleos.example.com/oferta/1', 'descartada');
+assert(!(await cli('oportunidades')).includes('Redactor')); assert((await cli('oportunidades', '--todas')).includes('**Redactor remoto de fin de semana** — Descartada'));
+clock += 1000; out = await cli('oportunidad', 'editar', 'Asistente', '--cierra', '2026-10-08', '--estado', 'por revisar', '--enlace', 'https://x.example.com/a'); assert(out.includes('(por revisar, cierra 2026-10-08)'));
+await assert.rejects(cli('oportunidad', 'agregar', 'x', '--enlace', 'javascript:alert(1)'), /Enlace inválido/); await assert.rejects(cli('oportunidad', 'estado', 'Asistente', 'contratado'), /Estado desconocido/);
+await assert.rejects(cli('oportunidad', 'estado', 'nadie', 'apliqué'), /No hay ninguna oportunidad/); await assert.rejects(cli('oportunidad', 'agregar'), /Falta el título/); await assert.rejects(cli('oportunidad', 'archivar', 'x'), /agregar, estado, editar o quitar/);
+const orow = rows().filter((r) => r.id.startsWith('rt:o:')); assert.strictEqual(orow.length, 2); assert(orow.every((r) => r.col === 'books' && r.data.startsWith('e1:'))); assert(!/Redactor|Asistente|empleos\.example/.test(rows().map((r) => r.data).join('|')));
+ok('oportunidades: agregar (sin duplicar por enlace), estados, editar; viajan cifradas como «books» rt:o:…');
+
+// ---- «hoy»: lo que Claude lee en sus resúmenes programados
+const hoy = JSON.parse(await cli('hoy', '--json'));
+assert.strictEqual(hoy.hoy, '2026-10-07'); assert.deepStrictEqual(hoy.tareas.map((t) => [t.texto, t.prioridad, t.vence, t.vencida]), [['Enviar hoja de vida', 'high', '2026-10-09', false]]);
+assert.deepStrictEqual([hoy.rutina.hechos, hoy.rutina.total, hoy.rutina.diarios.length, hoy.rutina.mensuales.length], [1, 3, 2, 1]); assert.strictEqual(hoy.semana.semana, '2026-W41'); assert.strictEqual(hoy.semana.dias.length, 7); assert.strictEqual(hoy.semana.dias[2].estado, 'today');
+assert.deepStrictEqual(hoy.oportunidades.cuenta, { review: 1, applied: 0, replied: 0, discarded: 1, total: 2 }); assert.deepStrictEqual(hoy.oportunidades.cierranPronto.map((o) => [o.titulo, o.enlace, o.cierre]), [['Asistente virtual', 'https://x.example.com/a', 'Cierra mañana · 8 oct']]);
+out = await cli('hoy'); assert(out.includes('# Hoy — miércoles 2026-10-07') && out.includes('## Tareas pendientes (1)') && out.includes('- [alta] Enviar hoja de vida — vence 2026-10-09') && out.includes('## Rutina de hoy (1 de 3)') && out.includes('- [x] Hacer resumen del libro') && out.includes('- Asistente virtual — Cierra mañana · 8 oct — https://x.example.com/a'));
+clock += 3 * 86400000; assert((await cli('hoy')).includes('vence 2026-10-09 (VENCIDA)')); clock -= 3 * 86400000;
+clock += 1000; out = await cli('oportunidad', 'quitar', 'Asistente'); assert(out.includes('Oportunidad quitada: Asistente virtual')); assert.strictEqual(JSON.parse(await cli('oportunidades', '--todas', '--json')).oportunidades.length, 1);
+ok('hoy: tareas pendientes, rutina del día, semana y oportunidades que cierran pronto (Markdown y JSON)');
+
+// ---- el código: variable de entorno PENDIENTES_CODIGO o archivo local; nunca se imprime; con otro código no se ve nada
+const sinCodigo = { ...base, code: undefined, envCode: '' };
+await assert.rejects(run(['ver'], { ...sinCodigo, codeFile: join(tmp, 'no-existe.txt') }), /Falta tu código de sincronización[\s\S]*PENDIENTES_CODIGO/);
+writeFileSync(join(tmp, 'malo.txt'), 'hola'); await assert.rejects(run(['ver'], { ...sinCodigo, codeFile: join(tmp, 'malo.txt') }), /no contiene un código válido/);
+writeFileSync(join(tmp, 'bueno.txt'), '  ' + Sync.formatCode(code).toLowerCase() + '\r\n'); assert((await run(['revisar'], { ...sinCodigo, codeFile: join(tmp, 'bueno.txt') })).includes('3 pendiente(s) y hay 1 oportunidad(es)'));
+assert((await run(['revisar'], { ...sinCodigo, envCode: Sync.formatCode(code), codeFile: join(tmp, 'malo.txt') })).includes('3 pendiente(s)')); // la variable de entorno manda sobre el archivo
+await assert.rejects(run(['ver'], { ...sinCodigo, envCode: 'no-es-un-codigo', codeFile: join(tmp, 'bueno.txt') }), /PENDIENTES_CODIGO no contiene un código válido/);
+const otro = Sync.makeCode(crypto.getRandomValues(new Uint8Array(20))); assert((await run(['ver'], { ...base, code: otro })).includes('_Sin pendientes diarios._')); assert((await run(['oportunidades', '--todas'], { ...base, code: otro })).includes('_No hay oportunidades._'));
+for (const a of [['ver'], ['revisar'], ['exportar'], ['hoy'], ['oportunidades']]) assert(!(await cli(...a)).includes(code) && !(await cli(...a)).includes(Sync.formatCode(code)));
+assert((await run(['ayuda'], {})).includes('node herramientas/rutina.mjs') && (await run(['ayuda'], {})).includes('PENDIENTES_CODIGO'));
+ok('el código se toma de PENDIENTES_CODIGO o del archivo local, se valida y nunca se imprime; con otro código no se ve nada');
 
 rmSync(tmp, { recursive: true, force: true });
 console.log('todas las pruebas del programa de escritorio pasan');

@@ -18,7 +18,7 @@ const assert = require('assert');
   const row = (text) => p.locator('.rt-item', { hasText: text });
 
   // ---- pestaña nueva, vacía al principio
-  assert.strictEqual(await p.locator('.nav-btn').count(), 3); await p.click('.nav-btn[data-tab=routine]');
+  assert.strictEqual(await p.locator('.nav-btn').count(), 4); await p.click('.nav-btn[data-tab=routine]');
   assert.strictEqual(await p.locator('#page-title').innerText(), 'Rutina'); assert((await p.locator('#routine-body').innerText()).includes('Tu rutina está vacía')); ok('pestaña Rutina con estado vacío');
   await p.click('[data-action=rt-add]'); await p.click('[data-action=rt-save]'); assert((await p.locator('#rt-error').innerText()).includes('Escribe')); await p.click('#routine-sheet-close');
 
@@ -46,11 +46,22 @@ const assert = require('assert');
   await p.reload(); await p.clock.resume?.(); assert.strictEqual(await p.locator('#page-title').innerText(), 'Rutina'); assert.strictEqual(await p.locator('.rt-item.done').count(), 3);
   ok('marcar con un toque (y desmarcar); se guarda y sigue tras recargar');
 
+  // ---- tarjeta «Tu semana»: porcentaje y un punto por día
+  const dots = () => p.locator('.rt-week-card .rt-dot').evaluateAll((els) => els.map((e) => e.className.replace('rt-dot d-', '')));
+  assert.strictEqual(await p.locator('#routine-week-pct').innerText(), '100 %'); assert.deepStrictEqual(await dots(), ['empty', 'empty', 'today', 'future', 'future', 'future', 'future']);
+  assert.deepStrictEqual(await p.locator('.rt-week-card .rt-dot small').allInnerTexts(), ['L', 'M', 'X', 'J', 'V', 'S', 'D']);
+  await row('Revisar oportunidades').locator('[data-action=rt-toggle]').click(); assert.deepStrictEqual((await dots())[2], 'full'); await row('Revisar oportunidades').locator('[data-action=rt-toggle]').click(); assert.deepStrictEqual((await dots())[2], 'today');
+  await p.click('[data-action=rt-edit]'); assert.strictEqual(await p.locator('.rt-week-card').count(), 0); await p.click('[data-action=rt-edit]');
+  ok('tarjeta «Tu semana»: porcentaje, un punto por día (hoy se llena al completar todo)');
+
   // ---- al día siguiente lo diario empieza de nuevo; lo semanal y mensual siguen hechos
   await p.clock.fastForward(24 * 3600 * 1000 + 40000); await p.waitForTimeout(200);
   assert.strictEqual(await row('Hacer resumen del libro').evaluate((e) => e.classList.contains('done')), false); assert.strictEqual(await row('Ir al gimnasio').count(), 1); assert.strictEqual(await row('Revisar oportunidades').count(), 0);
   assert.strictEqual(await row('Planear la semana').evaluate((e) => e.classList.contains('done')), true); assert.strictEqual(await p.locator('#routine-count').innerText(), '2 de 4 hechos');
   ok('jueves: lo diario se reinicia solo y cambian los que tocan; semana y mes siguen marcados');
+  assert.strictEqual(await p.locator('#routine-week-pct').innerText(), '67 %'); assert.deepStrictEqual(await dots(), ['empty', 'empty', 'partial', 'today', 'future', 'future', 'future']);
+  await p.click('.rt-week-card'); assert.strictEqual(await p.locator('#routine-view button.active').innerText(), 'Resumen semanal'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '5–11 oct');
+  await p.click('#routine-view [data-view=today]'); ok('la tarjeta refleja el día anterior a medias y abre el resumen semanal');
 
   // ---- resumen semanal
   await p.click('#routine-view [data-view=week]');
