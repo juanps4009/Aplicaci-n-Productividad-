@@ -1,7 +1,7 @@
 # Notas para continuar el proyecto (para Claude, en la nube o en el computador del dueño)
 
 Lee esto primero. Resume qué es el proyecto, cómo está armado, qué quedó hecho, qué falta y cómo probar.
-Última puesta al día: **7 oct 2026**. Las versiones 0.13 → 0.18 se hicieron en el computador del dueño; la **0.19 (Ingresos)** se hizo en una sesión en la nube, en la rama `claude/revisar-notas-pu0422`. El §4 dice qué quedó hecho y probado, el §5 qué falta, y el §9 qué cosas existen **solo en su computador** y una sesión en la nube no tiene.
+Última puesta al día: **7 oct 2026**. Las versiones 0.13 → 0.18 se hicieron en el computador del dueño; la **0.19 (Ingresos)** se hizo en una sesión en la nube, en la rama `claude/revisar-notas-pu0422`, y está en el **borrador de PR [#2](https://github.com/juanps4009/Aplicaci-n-Productividad-/pull/2) sin fusionar** (la app publicada sigue en 0.18 hasta que el dueño lo apruebe; ver §2). **Lo siguiente es Lectura** (§5). El §4 dice qué quedó hecho y probado, el §5 qué falta, y el §9 qué cosas existen **solo en su computador** y una sesión en la nube no tiene.
 
 ## 1. Qué es y qué quiere el dueño
 
@@ -16,7 +16,7 @@ Preferencias del dueño (respétalas): todo **gratis**; interfaz **simple y limp
 
 | Cosa | Dónde |
 |---|---|
-| Código | Repositorio GitHub `juanps4009/Aplicaci-n-Productividad-`, rama de trabajo **`claude/hopeful-brahmagupta-m6bura`** (no hay pull request ni rama principal con contenido) |
+| Código | Repositorio GitHub `juanps4009/Aplicaci-n-Productividad-`. Rama **`claude/hopeful-brahmagupta-m6bura`** = la que **publica GitHub Pages** y es la rama por defecto (0.18). Rama **`claude/revisar-notas-pu0422`** = trabajo de la 0.19 (Ingresos), con el **borrador de PR #2** hacia la anterior: **fusionarlo publica la 0.19, así que lo decide el dueño**. Una sesión nueva debe partir de `claude/revisar-notas-pu0422` si la 0.19 aún no se fusionó (o de la rama por defecto si ya se fusionó). Existen además `claude/rutina` (PR #1, antiguo) y `he`, sin uso |
 | App publicada | GitHub Pages, sirve directamente esa rama: `https://juanps4009.github.io/Aplicaci-n-Productividad-/` (se actualiza 1-2 min tras cada push) |
 | Servidor | Cloudflare Worker + D1 del dueño: `https://avisos-productividad.juanrincon-oy.workers.dev` (código en `worker/index.js`; el dueño lo pega en el panel de Cloudflare) |
 | APK del widget | Lo compila GitHub Actions (`.github/workflows/android-widget.yml`) y lo publica en la Release `widget-latest`, archivo `pendientes-widget.apk` |
@@ -53,6 +53,7 @@ Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes (c
 - Acceso directo «Pendientes» en su escritorio (abre la app en Brave en modo aplicación).
 
 **Sin confirmar todavía por el dueño:**
+- Que acepte el PR #2 (0.19, Ingresos) y lo fusione; mientras tanto la app publicada no tiene Ingresos.
 - Notificaciones push reales en un celular.
 - En su celular: el formato de texto sin seleccionar y la alineación con el teclado de Android (0.16), la pestaña Rutina (0.17) y la pestaña Trabajo y la tarjeta «Tu semana» (0.18), y la vista Ingresos (0.19). Se probaron en Brave a tamaño de celular, no en un teléfono.
 - Que el guardado automático de resúmenes llegue de celular a computador en ~20 s en uso real (se probó con dos navegadores simulados).
@@ -61,7 +62,7 @@ Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes (c
 ## 5. Pendiente / ideas
 
 **Lo que el dueño pidió y falta** (su lista de 7 puntos; hechos: rutina, «Tu semana», oportunidades, **ingresos**, sincronización sin tocar el servidor, herramienta):
-- **Lectura** (dentro de Resúmenes): libro que está leyendo y capítulo en el que va, conectado con sus resúmenes.
+- **Lectura** (dentro de Resúmenes) — **es lo siguiente**: libro que está leyendo y capítulo en el que va, conectado con sus resúmenes. Sugerencia de diseño, siguiendo lo hecho en Ingresos: interruptor **Resúmenes · Lectura** arriba de la pestaña, registros nuevos en el mismo canal de sincronización (p. ej. `l:<id>` con título, autor, capítulo actual, total de capítulos opcional, estado *leyendo / terminado*, y `bookId` opcional para enlazar un resumen existente); lógica pura en un archivo propio o en `work.js`, y que `setRoutine` los reparta como a los demás (lo que no entienda se conserva en `routineOther`). Añadir pruebas unitarias, de navegador y de sincronización, y comandos en `herramientas/rutina.mjs`. Preguntar al dueño solo lo que no se pueda decidir con un valor razonable por defecto.
 - **Su lista real de rutina:** está vacía. Puede dictarla, añadirla en la app, o usar `RUTINA-GUIA.md` con su Proyecto de claude.ai y pedir «carga mi rutina» (`herramientas/rutina.mjs importar`).
 - **Comentario semanal programado:** falta que diga día y hora. Requiere su computador encendido.
 - **Radar de empleos:** quiere 3–6 ofertas nuevas al día, remoto, ~8 h semanales entre semana y fines de semana, tareas que Claude pueda hacer con su supervisión (redacción, traducción, transcripción, diseño, atención por chat, programación); sin pago mínimo por ahora; descarta ventas por comisión y pagar para empezar. Primera búsqueda (7 oct): los portales de empleo no sirven para ese perfil y no se añadió ninguna oferta (una de CazVid tenía señales de estafa). Lo que encaja son mercados de encargos por proyecto (**Workana**), pero sus páginas bloquean la lectura automática: hace falta que **él cree la cuenta** y deje la sesión abierta en Brave, o que pegue los encargos. Quedó pendiente que conteste su **nivel de inglés** y si tiene **muestras de trabajo**, y preparar el texto de su perfil. Claude no aplica ni envía mensajes en su nombre sin confirmación, y descarta encargos cuyo cliente prohíba IA.
@@ -76,7 +77,14 @@ Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes (c
 
 Hay una carpeta `tests/` con **pruebas automáticas** (ver `tests/README.md`): `npm run unit` (lógica y servidor, sin navegador) y `npm run e2e` (navegador, requiere `python -m http.server 8123` en la raíz). Node ≥ 22.13. Para la lógica del widget Java se usó `javac` contra `android-all` (no está en el repo); la compilación real la valida GitHub Actions.
 
-Flujo de trabajo usado: cambiar → correr pruebas → `python3 scripts/build-beta.py` (si se quiere republicar la copia de pruebas) → commit y push a la rama → esperar el despliegue de Pages. **No abrir pull request ni tocar otras ramas sin que el dueño lo pida.**
+Flujo de trabajo usado: cambiar → correr pruebas → `python3 scripts/build-beta.py` (si se quiere republicar la copia de pruebas) → commit y push a la rama → esperar el despliegue de Pages. En las sesiones del computador del dueño no se abrían PR; en las sesiones en la nube **sí se abre un PR en borrador** (lo exige el entorno) y **no se fusiona sin que el dueño lo pida**, porque la rama base es la que publica Pages.
+
+**Probar desde una sesión en la nube (lo que funcionó):**
+- `cd tests && npm install` (el Chromium ya está instalado; no correr `playwright install`).
+- Servidor estático en la raíz: `python3 -m http.server 8123 &` (para pararlo, mejor `kill` por PID: `pkill -f` mata también la terminal).
+- `CHROMIUM_PATH=/opt/pw-browsers/chromium npm run e2e` (ojo: `chromium` ahí es el ejecutable, no una carpeta). `npm run unit` no necesita navegador. No dejar `tests/package-lock.json` ni `node_modules` en el commit.
+- Las pruebas de navegador usan reloj simulado (miércoles 7 oct 2026, 10:00).
+- Si `git push` responde `Internal Server Error` (pasó varias veces el 7 oct, también al crear la PR): era un fallo temporal de GitHub; se resolvió esperando ~1 minuto y repitiendo. Lo que no está subido se pierde cuando el contenedor se recicla, así que verificar con `git ls-remote origin <rama>`.
 
 ## 7. Datos que NO debes pedir ni guardar
 
@@ -84,7 +92,7 @@ Códigos de sincronización de personas, contraseñas, tokens. La dirección del
 
 ## 8. Primer mensaje sugerido para el dueño
 
-«Hola, ya leí las notas del proyecto: la app va en la 0.19 con Rutina, Trabajo (oportunidades e ingresos) y la herramienta. Quedan Lectura, tu lista de rutina, el comentario semanal y el radar de empleos. ¿Con cuál seguimos?»
+«Hola, ya leí las notas del proyecto: la app va en la 0.19 con Rutina, Trabajo (oportunidades e ingresos) y la herramienta; la 0.19 está en el PR #2 esperando tu visto bueno para publicarse. Quedan Lectura (lo siguiente), tu lista de rutina, el comentario semanal y el radar de empleos. ¿Seguimos con Lectura?»
 
 ## 9. Lo que existe solo en el computador del dueño (una sesión en la nube NO lo tiene)
 
