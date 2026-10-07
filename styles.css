@@ -500,3 +500,18 @@ a.btn-primary { display: block; }
 .menu-list button.active { font-weight: 700; color: var(--accent); }
 .bottom-nav .nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .rt-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+
+/* Trabajo → Ingresos */
+.inc-month { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.inc-month strong { text-transform: capitalize; }
+.inc-month .icon-btn:disabled { opacity: 0.3; }
+.inc-total { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0.85rem 1rem; display: grid; gap: 0.15rem; }
+.inc-total-num { font-size: 1.9rem; font-weight: 800; line-height: 1.1; }
+.inc-card { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0.85rem 1rem; display: grid; gap: 0.4rem; }
+.inc-head { display: flex; align-items: center; gap: 0.6rem; }
+.inc-head .wk-title { flex: 1; }
+.inc-edit { margin: -0.4rem -0.5rem -0.4rem 0; }
+.inc-amount { font-weight: 800; white-space: nowrap; }
+.inc-type { font-weight: 600; }
+.inc-type.t-claude { color: var(--accent); }
+.inc-type.t-onsite { color: var(--low); }

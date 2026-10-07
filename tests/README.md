@@ -26,9 +26,10 @@ npm run e2e
 | `sync-test.js` | `sync.js`: códigos, sellos de cambio, borrados, fusión «gana lo más reciente» |
 | `rt-test.js` | `richtext.js`: texto con formato (tramos de negrita, colores, tamaño; limpieza de datos ajenos; HTML seguro) |
 | `routine-test.js` | `routine.js`: rutina diaria/semanal/mensual (semanas ISO, marcar, resumen semanal, racha, limpieza de datos ajenos) |
-| `work-test.js` | `work.js`: oportunidades (validación, enlaces solo http(s), orden, días al cierre, no duplicar por enlace) |
+| `work-test.js` | `work.js`: oportunidades (validación, enlaces solo http(s), orden, días al cierre, no duplicar por enlace) e ingresos (monto, fechas, totales por mes y tipo) |
 | `work-e2e.js` | Pestaña Trabajo en el navegador: añadir, estado con un toque, filtro, cierre, enlace seguro, datos maliciosos |
-| `rutina-cli-test.mjs` | `herramientas/rutina.mjs`: el programa de escritorio contra el servidor real (D1 simulada): rutina, comentario, importar, `hoy`, tareas, oportunidades y código por `PENDIENTES_CODIGO` |
+| `rutina-cli-test.mjs` | `herramientas/rutina.mjs`: el programa de escritorio contra el servidor real (D1 simulada): rutina, comentario, importar, `hoy`, tareas, oportunidades, ingresos y código por `PENDIENTES_CODIGO` |
+| `income-e2e.js` | Trabajo → Ingresos en el navegador: añadir, total por mes y por tipo, cambiar de mes, editar, eliminar, datos maliciosos |
 | `routine-e2e.js` | Rutina en el navegador: añadir, marcar con un toque, reinicio diario (reloj simulado), editar, resumen semanal, comentario |
 | `sync-crypto-test.js` | Cifrado de extremo a extremo (AES-GCM + HKDF); imprime un vector que usa la prueba Java del widget |
 | `sw-test.js` | `sw.js`: descifrado de avisos push con la clave del dispositivo |
