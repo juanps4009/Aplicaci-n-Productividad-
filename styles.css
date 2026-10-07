@@ -401,12 +401,12 @@ a.btn-primary { display: block; }
 #open-sync.is-error .badge { background: var(--danger); width: 10px; height: 10px; top: 8px; right: 8px; }
 @keyframes sync-pulse { 50% { opacity: 0.25; transform: scale(1.7); } }
 
-/* AlineaciÃ³n de pÃ¡rrafos y campos (izquierda por defecto) */
+/* Alineación de párrafos y campos (izquierda por defecto) */
 [data-align="center"] { text-align: center; }
 [data-align="right"] { text-align: right; }
 .ln { display: block; min-height: 1.4em; }
 
-/* Barra de formato: estado actual y cÃ­rculo Â«sin colorÂ» */
+/* Barra de formato: estado actual y círculo «sin color» */
 .format-bar button.open { background: var(--surface-2); }
 .fb-a { border-bottom-color: var(--cur, currentColor); }
 .fb-u { font-weight: 600; text-decoration: underline; text-decoration-color: var(--cur, currentColor); text-decoration-thickness: 3px; text-underline-offset: 4px; }
@@ -414,3 +414,53 @@ a.btn-primary { display: block; }
 .fb-none::after { background: linear-gradient(to top right, transparent calc(50% - 1.5px), var(--danger) calc(50% - 1.5px), var(--danger) calc(50% + 1.5px), transparent calc(50% + 1.5px)); box-shadow: 0 0 0 2px var(--muted); border-color: var(--surface); }
 .fb-sub { gap: 0.1rem; }
 .format-bar .fb-swatch { min-width: 34px; }
+
+/* Rutina: pendientes de cada día, semana y mes */
+.bottom-nav .nav-btn { min-width: 0; }
+.rt-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.rt-top .btn-secondary { min-height: 40px; font-size: 0.9rem; }
+.rt-bar { height: 8px; border-radius: 9999px; background: var(--surface-2); overflow: hidden; margin-top: 0.75rem; }
+.rt-bar span { display: block; height: 100%; border-radius: 9999px; background: var(--low); transition: width 0.25s; }
+.rt-group-head { display: flex; align-items: center; gap: 0.5rem; margin: 1.25rem 0 0.5rem; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.rt-group-head .count { background: var(--surface-2); border-radius: 9999px; padding: 0 0.5rem; font-size: 0.75rem; }
+.rt-list { display: grid; gap: 0.5rem; }
+.rt-item { background: var(--surface); border: 1px solid var(--border); border-radius: 0.9rem; }
+.rt-item.editing { display: flex; align-items: center; gap: 0.15rem; padding: 0.35rem 0.4rem 0.35rem 0.9rem; }
+.rt-row { display: flex; align-items: center; gap: 0.75rem; width: 100%; min-height: 56px; padding: 0.6rem 0.9rem; text-align: left; border-radius: 0.9rem; }
+.rt-row:active { background: var(--surface-2); }
+.rt-check { flex-shrink: 0; width: 28px; height: 28px; border-radius: 9999px; border: 2px solid var(--faint); display: flex; align-items: center; justify-content: center; color: transparent; transition: background 0.15s, border-color 0.15s; }
+.rt-item.done .rt-check { background: var(--low); border-color: var(--low); color: #fff; }
+.rt-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rt-text small { display: block; color: var(--muted); font-size: 0.75rem; }
+.rt-item.done .rt-text { color: var(--faint); text-decoration: line-through; }
+.rt-item.done .rt-text small { text-decoration: none; }
+.rt-streak { flex-shrink: 0; font-size: 0.72rem; font-weight: 600; color: var(--medium); background: color-mix(in srgb, var(--medium) 16%, transparent); border-radius: 9999px; padding: 0.1rem 0.5rem; }
+.rt-days { display: flex; gap: 0.3rem; }
+.rt-days button { flex: 1; min-height: 44px; border-radius: 0.65rem; background: var(--surface-2); color: var(--muted); font-weight: 600; }
+.rt-days button.active { background: var(--accent); color: var(--on-accent); }
+
+/* Rutina: resumen semanal */
+.rt-weeknav { display: flex; align-items: center; justify-content: space-between; }
+.rt-weeknav .icon-btn { font-size: 1.6rem; }
+.rt-weeknav .icon-btn:disabled { opacity: 0.3; }
+.rt-score { padding: 1rem; text-align: center; margin-top: 0.5rem; }
+.rt-pct { font-size: 2.4rem; font-weight: 800; line-height: 1.1; }
+.rt-grid { display: grid; gap: 0.35rem; }
+.rt-grid-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(7, 24px) 2.1rem; align-items: center; gap: 0.18rem; }
+.rt-grid-row.head b { text-align: center; font-size: 0.7rem; color: var(--muted); }
+.rt-grid-row.head b.today { color: var(--accent); }
+.rt-grid-name { font-size: 0.82rem; line-height: 1.2; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.rt-grid-row i { height: 26px; border-radius: 0.45rem; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 0.8rem; font-weight: 700; background: var(--surface-2); color: var(--faint); }
+.rt-grid-row i.c-done { background: var(--low); color: #fff; }
+.rt-grid-row i.c-miss { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+.rt-grid-row i.c-pending { background: transparent; border: 2px dashed var(--faint); }
+.rt-grid-row i.c-future { background: transparent; border: 1px solid var(--border); }
+.rt-grid-row i.c-na { background: transparent; }
+.rt-grid-score { text-align: right; font-size: 0.75rem; color: var(--muted); }
+.rt-sum-list { display: grid; gap: 0.35rem; }
+.rt-sum-list li { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.95rem; }
+.rt-sum-list li span { width: 1.1rem; text-align: center; font-weight: 700; color: var(--faint); }
+.rt-sum-list li.ok span { color: var(--low); }
+.rt-sum-list li.bad span { color: var(--danger); }
+.rt-review { padding: 1rem; }
+.rt-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }

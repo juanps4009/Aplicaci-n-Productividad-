@@ -63,4 +63,12 @@ S.mergeIncoming('books',F.books,[{id:'fb',col:'books',updatedAt:50000,deleted:0,
 // compatibilidad: sin lista de pendientes sigue valiendo «modificado después de la última subida»
 assert.strictEqual(S.collectPush(F.tasks,F.books,F.tombs,0).length,2); assert.strictEqual(S.collectPush(F.tasks,F.books,F.tombs,0,S.newTracker()).length,2);
 console.log('OK pendientes de subir: reloj que retrocede, cambios durante la subida, borrados, reemplazo por lo que llega');
+// --- otras colecciones (la rutina): mismo mecanismo de sellos, pendientes, borrados y fusión
+const G=dev(), rut=[{id:'i:a',kind:'item',text:'x'}]; S.stampChanges('routine',rut,G.tr,G.tombs,100); assert.strictEqual(rut[0].updatedAt,100);
+up=S.collectPush(G.tasks,G.books,G.tombs,0,G.tr,{routine:rut}); assert(up.length===1&&up[0].col==='routine'&&up[0].id==='i:a'); S.clearPushed(G.tr,up);
+assert.strictEqual(S.collectPush([],[],G.tombs,999,G.tr,{routine:rut}).length,0); S.stampChanges('routine',rut,G.tr,G.tombs,150); assert.strictEqual(rut[0].updatedAt,100);
+rut.length=0; S.stampChanges('routine',rut,G.tr,G.tombs,200); up=S.collectPush([],[],G.tombs,999,G.tr,{routine:rut}); assert(up.length===1&&up[0].deleted===1&&up[0].col==='routine');
+const H=dev(), hl=[]; r=S.mergeIncoming('routine',hl,[{id:'i:a',col:'routine',updatedAt:5,deleted:0,data:JSON.stringify({id:'i:a',kind:'item',text:'x'})},{id:'b9',col:'books',updatedAt:5,deleted:0,data:'{}'}],H.tr,H.tombs,new Set());
+assert(r.changed&&hl.length===1&&hl[0].id==='i:a'); S.stampChanges('routine',hl,H.tr,H.tombs,900); assert.strictEqual(hl[0].updatedAt,5);
+console.log('OK colección «routine»: se estampa, se sube, se borra y se fusiona como las demás');
 console.log('todas las pruebas de sync.js pasan');})();

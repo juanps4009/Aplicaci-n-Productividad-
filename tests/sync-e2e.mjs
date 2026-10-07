@@ -115,6 +115,18 @@ assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod
 await A.click('.book-open'); assert((await A.locator('#book-detail .box.notes p').innerText()).includes('a medio escribir')); ok('cerrar o recargar a mitad de edición no pierde lo escrito');
 await A.click('#book-back'); await A.click('.nav-btn[data-tab=tasks]'); await B.click('[data-action=done]'); await B.click('#book-back'); await B.click('.nav-btn[data-tab=tasks]');
 
+// ---- rutina: lo que se añade y se marca en un dispositivo aparece en el otro; viaja como «books» cifrados y no se mezcla con los resúmenes
+await A.click('.nav-btn[data-tab=routine]'); await A.click('[data-action=rt-add]'); await A.fill('#rt-text', 'Revisar oportunidades'); await A.click('[data-action=rt-save]');
+await A.locator('.rt-item [data-action=rt-toggle]').click(); await A.waitForTimeout(1800);
+const rtRows = env.DB.raw.prepare("SELECT id, col, data FROM records WHERE id LIKE 'rt:%'").all();
+assert.strictEqual(rtRows.length, 2); assert(rtRows.every((r) => r.col === 'books' && r.data.startsWith('e1:'))); assert(!rtRows.some((r) => /oportunidades/.test(r.data)));
+await B.click('.nav-btn[data-tab=routine]'); await B.evaluate(() => window.dispatchEvent(new Event('online')));
+await B.waitForFunction(() => document.querySelector('.rt-item.done .rt-text')?.textContent === 'Revisar oportunidades', null, { timeout: 5000 }); ok('rutina: el pendiente añadido y marcado en A aparece marcado en B (el servidor solo ve «books» cifrados)');
+await B.locator('.rt-item [data-action=rt-toggle]').click(); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
+await A.waitForFunction(() => document.querySelectorAll('.rt-item').length === 1 && !document.querySelector('.rt-item.done'), null, { timeout: 5000 }); ok('B lo desmarca y A lo ve');
+await B.click('.nav-btn[data-tab=books]'); assert.strictEqual(await B.locator('.book-card').count(), 1); assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); ok('la rutina no aparece entre los resúmenes');
+await A.click('.nav-btn[data-tab=tasks]'); await B.click('.nav-btn[data-tab=tasks]');
+
 // ---- QR y enlace de vinculación
 await openSettings(A); await A.click('[data-action=sync-qr]'); assert.strictEqual(await A.locator('.qr-box svg').count(), 1); await A.screenshot({ path: '/tmp/v10-qr.png' }); await A.click('[data-action=sync-qr]'); await A.click('#close-settings');
 const C = await device('C-nuevo');

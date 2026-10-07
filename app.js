@@ -1,12 +1,12 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.16.0-beta";
+const APP_VERSION = "0.17.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
   settings: "prod.settings", collapsed: "prod.collapsed",
-  remstate: "prod.remstate", sync: "prod.sync", tomb: "prod.tomb",
+  remstate: "prod.remstate", sync: "prod.sync", tomb: "prod.tomb", routine: "prod.routine",
 };
 
 function load(key, fallback) {
@@ -18,6 +18,10 @@ function load(key, fallback) {
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* almacenamiento lleno o bloqueado */ }
 }
+
+/* El servidor solo conoce «tasks» y «books»: la rutina se sube como «books» con este prefijo en el id
+   (el widget de Android ignora «books», y así no hay que cambiar nada en el servidor). */
+const ROUTINE_PREFIX = "rt:";
 
 const TYPE_FROM_ENTRY = { title: "h1", subtitle: "h2", text: "p" };
 const migrateTask = (t) => {
@@ -53,6 +57,11 @@ const state = {
   // Migración: tareas de la v1 no tenían prioridad, fecha ni aviso
   tasks: loadList(KEYS.tasks, migrateTask),
   books: loadList(KEYS.books, migrateBook),
+  routine: [],             // rutina: ítems, marcas por periodo y comentarios semanales (se llena con setRoutine)
+  routineOther: [],        // registros de rutina que esta versión no entiende: se conservan y sincronizan sin tocarlos
+  routineView: "today",    // "today" o "week" (resumen semanal)
+  routineWeek: null,       // semana que se mira en el resumen (null = la actual)
+  routineEdit: false,      // modo «editar rutina»
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
   settings: { theme: "", priorityStyle: "dot", groupBy: "date", notifyHere: true, ...load(KEYS.settings, {}) },
@@ -71,11 +80,33 @@ const state = {
   editingTask: null,       // id de tarea en edición
 };
 
+/* Reparte los registros de la rutina: los válidos (saneados) a state.routine y el resto a routineOther */
+function setRoutine(all) {
+  state.routine = [];
+  state.routineOther = [];
+  (Array.isArray(all) ? all : []).forEach((r) => {
+    const c = Routine.clean(r);
+    if (c) state.routine.push(c);
+    else if (r && typeof r === "object" && typeof r.id === "string" && r.id) state.routineOther.push(r);
+  });
+}
+const routineAll = () => [...state.routine, ...state.routineOther];
+setRoutine(load(KEYS.routine, []));
+
 /* Migraciones de datos guardados por versiones anteriores */
 (function migrateStorage() {
   const st = state.settings;
   if (!st.serverUrl && st.pushUrl) st.serverUrl = st.pushUrl; // antes la dirección era solo para avisos
   delete st.pushUrl;
+  // La rutina viaja por el servidor como «resúmenes» con id "rt:…"; una versión anterior pudo guardarlos como libros
+  const strays = state.books.filter((b) => typeof b.id === "string" && b.id.startsWith(ROUTINE_PREFIX));
+  if (strays.length) {
+    state.books = state.books.filter((b) => !strays.includes(b));
+    strays.forEach((b) => {
+      const rec = Routine.clean({ ...b, id: b.id.slice(ROUTINE_PREFIX.length) });
+      if (rec && !state.routine.some((r) => r.id === rec.id)) state.routine.push(rec);
+    });
+  }
   state.tasks.forEach((t) => t.reminders.forEach((r) => { // el estado de avisos pasa a ser local de cada dispositivo
     if (r.lastFired !== undefined || r.acked !== undefined) {
       if (!state.remState[r.id]) state.remState[r.id] = { lastFired: r.lastFired || 0, acked: !!r.acked };
@@ -131,13 +162,15 @@ function askConfirm(message, okLabel = "Eliminar") {
 }
 
 /* ---------- Navegación ---------- */
-const TITLES = { tasks: "Pendientes", books: "Resúmenes" };
+const TITLES = { tasks: "Pendientes", routine: "Rutina", books: "Resúmenes" };
 
 function showTab(tab) {
   state.tab = tab;
   save(KEYS.tab, tab);
   $("#tab-tasks").classList.toggle("hidden", tab !== "tasks");
+  $("#tab-routine").classList.toggle("hidden", tab !== "routine");
   $("#tab-books").classList.toggle("hidden", tab !== "books");
+  if (tab === "routine") renderRoutine();
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $("#page-title").textContent = TITLES[tab];
   $("#open-filter").classList.toggle("hidden", tab !== "tasks");
@@ -1160,12 +1193,15 @@ async function syncNow() {
     if (state.sync.v !== 2) { // datos subidos sin cifrar por versiones anteriores: bajar todo y volver a subirlo cifrado
       Object.assign(state.sync, { lastSeq: 0, lastPushAt: 0, v: 2 });
     }
-    const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt, tracker);
+    const pending = Sync.collectPush(state.tasks, state.books, state.tombs, state.sync.lastPushAt, tracker, { routine: routineAll() });
     const pushed = [...pending];
     const open = openStamps();
-    let since = state.sync.lastSeq, deferred = 0, changed = false, more = false;
+    // La rutina viaja como «books» con prefijo en el id (el servidor solo conoce tasks y books)
+    const toWire = (r) => (r.col === "routine" ? { ...r, col: "books", id: ROUTINE_PREFIX + r.id } : r);
+    const fromWire = (r) => (r.col === "books" && r.id.startsWith(ROUTINE_PREFIX) ? { ...r, col: "routine", id: r.id.slice(ROUTINE_PREFIX.length) } : r);
+    let since = state.sync.lastSeq, deferred = 0, changed = false, routineChanged = false, more = false;
     do {
-      const chunk = await Promise.all(pending.splice(0, 100).map(async (r) => (
+      const chunk = await Promise.all(pending.splice(0, 100).map(toWire).map(async (r) => (
         r.deleted ? r : { ...r, data: await Sync.encryptText(key, r.data, `${r.id}|${r.col}`) })));
       const body = JSON.stringify({ space: state.sync.space, since, records: chunk });
       const res = await fetch(`${server}/space/sync`, {
@@ -1181,10 +1217,12 @@ async function syncNow() {
         const plain = await Sync.decryptText(key, r.data, `${r.id}|${r.col}`);
         if (plain !== null) incoming.push({ ...r, data: plain });
       }
-      data.records = incoming;
+      data.records = incoming.map(fromWire);
       const busy = busyIds();
       const rt = Sync.mergeIncoming("tasks", state.tasks, data.records, tracker, state.tombs, busy);
       const rb = Sync.mergeIncoming("books", state.books, data.records, tracker, state.tombs, busy);
+      const all = routineAll();
+      if (Sync.mergeIncoming("routine", all, data.records, tracker, state.tombs, new Set()).changed) { setRoutine(all); routineChanged = true; }
       deferred += rt.deferred.length + rb.deferred.length;
       changed = changed || rt.changed || rb.changed;
       since = data.seq;
@@ -1198,9 +1236,11 @@ async function syncNow() {
     saveSync();
     save(KEYS.tasks, state.tasks);
     save(KEYS.books, state.books);
+    save(KEYS.routine, routineAll());
     save(KEYS.tomb, state.tombs);
     syncInfo = { kind: "ok", text: "", at: Date.now() };
     syncFails = 0;
+    if (routineChanged && state.tab === "routine" && $("#routine-sheet").classList.contains("hidden")) renderRoutine();
     if (changed) {
       if (pendingFocus && focusTask(pendingFocus)) pendingFocus = null;
       runReminders();
@@ -1225,6 +1265,7 @@ function commitTasksQuiet() {
   const now = Date.now();
   Sync.stampChanges("tasks", state.tasks, tracker, state.tombs, now);
   Sync.stampChanges("books", state.books, tracker, state.tombs, now);
+  Sync.stampChanges("routine", routineAll(), tracker, state.tombs, now);
 }
 
 /* Enlace directo a una tarea: #task=ID (lo usa el widget de Android) */
@@ -1874,6 +1915,246 @@ function flushEdits() {
 $("#book-list").addEventListener("click", onBookClick);
 $("#book-page").addEventListener("click", onBookClick);
 
+/* ---------- Rutina: pendientes de cada día, semana y mes, y resumen semanal ----------
+   La lógica (fechas, marcas, resumen) está en routine.js; aquí solo se dibuja y se guarda. */
+function commitRoutine() {
+  Sync.stampChanges("routine", routineAll(), tracker, state.tombs, Date.now());
+  save(KEYS.routine, routineAll());
+  save(KEYS.tomb, state.tombs);
+  saveSync();
+  scheduleSync();
+}
+
+const RT_GROUPS = [
+  { freq: "daily", label: "Hoy", all: "Cada día" },
+  { freq: "weekly", label: "Esta semana", all: "Cada semana" },
+  { freq: "monthly", label: "Este mes", all: "Cada mes" },
+];
+const CHECK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function routineTodayHTML() {
+  const date = today(), t = Routine.today(state.routine, date), edit = state.routineEdit;
+  const all = Routine.items(state.routine);
+  if (!all.length) {
+    return `
+      <div class="card p-4 text-center">
+        <p class="font-bold">Tu rutina está vacía</p>
+        <p class="muted mt-1 text-sm">Añade lo que quieres hacer cada día, cada semana o cada mes. Luego solo tocas para marcarlo como hecho.</p>
+        <button class="btn-primary mt-3 w-full py-3" data-action="rt-add">+ Añadir mi primer pendiente</button>
+      </div>`;
+  }
+  const groups = RT_GROUPS.map((g) => {
+    // al editar se ven todos los ítems; en el día a día, solo los que tocan hoy
+    const rows = edit ? Routine.items(state.routine, g.freq).map((item) => ({ item, done: false })) : t[g.freq];
+    if (!rows.length) return "";
+    const done = rows.filter((r) => r.done).length;
+    return `
+      <section class="rt-group" data-freq="${g.freq}">
+        <h3 class="rt-group-head"><span>${edit ? g.all : g.label}</span>${edit ? "" : `<span class="count">${done}/${rows.length}</span>`}</h3>
+        <ul class="rt-list">${rows.map((r, i) => routineRowHTML(r.item, r.done, edit, i, rows.length, date)).join("")}</ul>
+      </section>`;
+  }).join("");
+  const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
+  return `
+    <div class="rt-top">
+      <div>
+        <p class="font-bold">${esc(capital(new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
+        <p class="muted text-sm" id="routine-count">${edit ? "Editando tu rutina" : t.total ? `${t.done} de ${t.total} hecho${t.total === 1 ? "" : "s"}` : "Hoy no toca nada"}</p>
+      </div>
+      <button class="btn-secondary px-4" data-action="rt-edit">${edit ? "Listo" : "Editar"}</button>
+    </div>
+    ${edit ? "" : `<div class="rt-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>`}
+    ${groups}
+    ${edit ? `<button class="btn-primary mt-4 w-full py-3" data-action="rt-add">+ Añadir pendiente</button>` : ""}`;
+}
+
+function routineRowHTML(item, done, edit, i, n, date) {
+  const days = Routine.describeDays(item);
+  const label = `<span class="rt-text">${esc(item.text)}${days ? `<small>${esc(days)}</small>` : ""}</span>`;
+  if (edit) {
+    return `
+      <li class="rt-item editing" data-id="${esc(item.id)}">
+        ${label}
+        <button class="icon-btn" data-action="rt-up" aria-label="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
+        <button class="icon-btn" data-action="rt-down" aria-label="Bajar" ${i === n - 1 ? "disabled" : ""}>↓</button>
+        <button class="icon-btn" data-action="rt-item-edit" aria-label="Editar">✎</button>
+      </li>`;
+  }
+  const streak = item.freq === "daily" ? Routine.streak(state.routine, item, date) : 0;
+  return `
+    <li class="rt-item ${done ? "done" : ""}" data-id="${esc(item.id)}">
+      <button class="rt-row" data-action="rt-toggle" role="checkbox" aria-checked="${done}">
+        <span class="rt-check">${CHECK_ICON}</span>
+        ${label}
+        ${streak >= 2 ? `<span class="rt-streak" title="Días seguidos">${streak} días</span>` : ""}
+      </button>
+    </li>`;
+}
+
+const RT_CELL = { done: "✓", miss: "✕", pending: "", future: "", na: "–" };
+const RT_CELL_LABEL = { done: "hecho", miss: "no se hizo", pending: "hoy, sin marcar", future: "aún no llega", na: "no tocaba" };
+
+function routineWeekHTML() {
+  const now = today();
+  const wk = state.routineWeek || Routine.weekKey(now);
+  const s = Routine.weekStats(state.routine, wk, now);
+  const list = (rows, empty) => (rows.length
+    ? `<ul class="rt-sum-list">${rows.map((r) => `<li class="${r.done ? "ok" : r.closed ? "bad" : ""}"><span>${r.done ? "✓" : r.closed ? "✕" : "○"}</span>${esc(r.item.text)}</li>`).join("")}</ul>`
+    : `<p class="muted text-sm">${empty}</p>`);
+  const grid = s.daily.length ? `
+    <div class="rt-grid" role="table" aria-label="Cumplimiento por día">
+      <div class="rt-grid-row head" role="row"><span></span>${Routine.DAY_SHORT.map((d, i) => `<b class="${s.dates[i] === now ? "today" : ""}">${d}</b>`).join("")}<span></span></div>
+      ${s.daily.map((r) => `
+        <div class="rt-grid-row" role="row">
+          <span class="rt-grid-name">${esc(r.item.text)}</span>
+          ${r.cells.map((c, i) => `<i class="c-${c}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]}">${RT_CELL[c]}</i>`).join("")}
+          <span class="rt-grid-score">${r.due ? `${r.done}/${r.due}` : "—"}</span>
+        </div>`).join("")}
+    </div>` : `<p class="muted text-sm">No tienes pendientes diarios.</p>`;
+  return `
+    <div class="rt-weeknav">
+      <button class="icon-btn" data-action="rt-week-prev" aria-label="Semana anterior">‹</button>
+      <div class="text-center">
+        <p class="font-bold" id="routine-week-label">${esc(s.label)}</p>
+        <p class="muted text-xs">${s.current ? "Esta semana" : esc(s.week)}</p>
+      </div>
+      <button class="icon-btn" data-action="rt-week-next" aria-label="Semana siguiente" ${s.current ? "disabled" : ""}>›</button>
+    </div>
+    <div class="card rt-score">
+      <p class="rt-pct">${s.pct === null ? "—" : `${s.pct} %`}</p>
+      <p class="muted text-sm">${s.pct === null ? "Sin datos de esta semana" : `${s.done} de ${s.due} cumplido${s.due === 1 ? "" : "s"}${s.current ? " hasta hoy" : ""}`}</p>
+    </div>
+    <h3 class="rt-group-head"><span>Cada día</span></h3>
+    ${grid}
+    <h3 class="rt-group-head"><span>Cada semana</span></h3>
+    ${list(s.weekly, "No tienes pendientes semanales.")}
+    <h3 class="rt-group-head"><span>Cada mes</span></h3>
+    ${list(s.monthly, "No tienes pendientes mensuales.")}
+    <h3 class="rt-group-head"><span>Comentario de la semana</span></h3>
+    <div class="card rt-review">${s.review
+      ? `<p class="rt-review-text">${esc(s.review.text)}</p><p class="muted mt-2 text-xs">— ${esc(s.review.by)}</p>`
+      : `<p class="muted text-sm">Aún no hay comentario de esta semana.</p>`}</div>`;
+}
+
+function renderRoutine() {
+  $$("#routine-view button").forEach((b) => {
+    const on = b.dataset.view === state.routineView;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  $("#routine-body").innerHTML = state.routineView === "week" ? routineWeekHTML() : routineTodayHTML();
+}
+
+$("#routine-view").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-view]");
+  if (!b) return;
+  state.routineView = b.dataset.view;
+  state.routineEdit = false;
+  state.routineWeek = null;
+  renderRoutine();
+});
+
+/* Hoja para añadir o editar un pendiente de la rutina */
+let routineDraft = null; // { id, text, freq, days:[…] }
+
+function renderRoutineSheet() {
+  const d = routineDraft;
+  $("#routine-sheet-title").textContent = d.id ? "Editar pendiente" : "Nuevo pendiente";
+  const text = $("#rt-text") ? $("#rt-text").value : d.text;
+  $("#routine-sheet-body").innerHTML = `
+    <label class="setting-label" for="rt-text">¿Qué quieres hacer?</label>
+    <input id="rt-text" class="field" maxlength="${Routine.MAX_TEXT}" autocomplete="off" placeholder="Hacer el resumen del libro" value="${esc(text)}">
+    <p class="setting-label mt-3">¿Cada cuánto?</p>
+    <div class="seg" id="rt-freq" role="radiogroup" aria-label="Frecuencia">
+      ${Routine.FREQS.map((f) => `<button data-freq="${f}" class="${d.freq === f ? "active" : ""}" role="radio" aria-checked="${d.freq === f}">${Routine.FREQ_LABEL[f]}</button>`).join("")}
+    </div>
+    ${d.freq === "daily" ? `
+      <p class="setting-label mt-3">¿Qué días? <span class="muted">(${d.days.length ? esc(Routine.describeDays({ freq: "daily", days: d.days })) : "todos los días"})</span></p>
+      <div class="rt-days" id="rt-days" role="group" aria-label="Días de la semana">
+        ${Routine.DAY_SHORT.map((s, i) => `<button data-day="${i + 1}" class="${!d.days.length || d.days.includes(i + 1) ? "active" : ""}" aria-pressed="${!d.days.length || d.days.includes(i + 1)}" aria-label="${Routine.DAY_NAME[i]}">${s}</button>`).join("")}
+      </div>` : ""}
+    <p id="rt-error" class="rem-error mt-2 text-xs" role="alert"></p>
+    <button class="btn-primary mt-3 w-full py-3" data-action="rt-save">Guardar</button>
+    ${d.id ? `<button class="btn-danger-soft mt-2 w-full py-3" data-action="rt-delete">Eliminar</button>` : ""}`;
+}
+
+function openRoutineSheet(item) {
+  routineDraft = item
+    ? { id: item.id, text: item.text, freq: item.freq, days: [...item.days] }
+    : { id: null, text: "", freq: "daily", days: [] };
+  $("#routine-sheet-body").innerHTML = "";
+  renderRoutineSheet();
+  openSheet("#routine-sheet");
+  if (!item) $("#rt-text").focus();
+}
+const closeRoutineSheet = () => { closeSheet("#routine-sheet"); routineDraft = null; };
+$("#routine-sheet-close").addEventListener("click", closeRoutineSheet);
+$("#routine-sheet").addEventListener("click", (e) => {
+  if (e.target === $("#routine-sheet")) return closeRoutineSheet();
+  const d = routineDraft;
+  if (!d) return;
+  const freq = e.target.closest("[data-freq]"), day = e.target.closest("[data-day]"), act = e.target.closest("[data-action]");
+  if (freq) { d.freq = freq.dataset.freq; renderRoutineSheet(); return; }
+  if (day) { // sin días marcados = todos; al tocar uno se pasa a elegir días concretos
+    const n = Number(day.dataset.day);
+    const set = new Set(d.days.length ? d.days : [1, 2, 3, 4, 5, 6, 7]);
+    if (set.has(n)) set.delete(n); else set.add(n);
+    if (!set.size) return; // al menos un día
+    d.days = Routine.cleanDays([...set]);
+    renderRoutineSheet();
+    return;
+  }
+  if (!act) return;
+  if (act.dataset.action === "rt-save") {
+    const data = { text: $("#rt-text").value, freq: d.freq, days: d.freq === "daily" ? d.days : [] };
+    const ok = d.id ? Routine.updateItem(state.routine, d.id, data) : Routine.addItem(state.routine, data, Date.now(), uid());
+    if (!ok) { $("#rt-error").textContent = "Escribe qué quieres hacer."; return; }
+    commitRoutine();
+    closeRoutineSheet();
+    renderRoutine();
+  } else if (act.dataset.action === "rt-delete") {
+    const item = state.routine.find((r) => r.id === d.id);
+    askConfirm(`¿Eliminar «${item ? item.text : ""}» de tu rutina?`).then((yes) => {
+      if (!yes) return;
+      Routine.removeItem(state.routine, d.id);
+      commitRoutine();
+      closeRoutineSheet();
+      renderRoutine();
+    });
+  }
+});
+$("#routine-sheet").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "rt-text") { e.preventDefault(); $("#routine-sheet [data-action=rt-save]").click(); }
+});
+
+$("#routine-body").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const li = btn.closest("[data-id]");
+  const item = li && state.routine.find((r) => r.id === li.dataset.id && r.kind === "item");
+  const now = today();
+  switch (btn.dataset.action) {
+    case "rt-toggle": // un toque marca o desmarca
+      if (!item) break;
+      Routine.toggle(state.routine, item, now, Date.now());
+      commitRoutine();
+      renderRoutine();
+      break;
+    case "rt-edit": state.routineEdit = !state.routineEdit; renderRoutine(); break;
+    case "rt-add": openRoutineSheet(null); break;
+    case "rt-item-edit": if (item) openRoutineSheet(item); break;
+    case "rt-up": case "rt-down":
+      if (item && Routine.moveItem(state.routine, item.id, btn.dataset.action === "rt-up" ? -1 : 1)) { commitRoutine(); renderRoutine(); }
+      break;
+    case "rt-week-prev": case "rt-week-next":
+      state.routineWeek = Routine.shiftWeek(state.routineWeek || Routine.weekKey(now), btn.dataset.action === "rt-week-prev" ? -1 : 1);
+      if (state.routineWeek >= Routine.weekKey(now)) state.routineWeek = null;
+      renderRoutine();
+      break;
+  }
+});
+
 /* ---------- Instalación y modo sin conexión ---------- */
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
@@ -1893,8 +2174,10 @@ renderSettings();
 // migración de datos: registra el estado actual y guarda (sellos de sincronización, estado de avisos)
 Sync.prime("tasks", state.tasks, tracker, Date.now());
 Sync.prime("books", state.books, tracker, Date.now());
+Sync.prime("routine", routineAll(), tracker, Date.now());
 save(KEYS.tasks, state.tasks);
 save(KEYS.books, state.books);
+save(KEYS.routine, routineAll());
 save(KEYS.settings, state.settings);
 runReminders();
 schedulePushSync();
@@ -1903,4 +2186,10 @@ handleTaskHash();
 window.addEventListener("hashchange", () => { handleLinkHash(); handleTaskHash(); });
 scheduleSync(300);
 setInterval(() => { if (!document.hidden) scheduleSync(0); }, 20000); // con la app a la vista, mira si hay cambios cada 20 s
-setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
+let routineDay = today();
+setInterval(() => {
+  runReminders();
+  if (state.editingTask === null) renderTasks();
+  // al cambiar el día, la rutina empieza de nuevo
+  if (today() !== routineDay) { routineDay = today(); if (state.tab === "routine" && !routineDraft) renderRoutine(); }
+}, 30000);

@@ -3,8 +3,8 @@
   "private": true,
   "description": "Pruebas de la app. Ver tests/README.md",
   "scripts": {
-    "unit": "node sync-test.js && node rem-test.js && node rt-test.js && node sync-crypto-test.js && node sw-test.js && node worker-test.mjs",
-    "e2e": "node full4.js && node full5.js && node format-e2e.js && node push-client.js && node deeplink.js && node legacy.js && node mig.js && node cfg.js && node sync-e2e.mjs"
+    "unit": "node sync-test.js && node rem-test.js && node rt-test.js && node routine-test.js && node sync-crypto-test.js && node sw-test.js && node worker-test.mjs && node rutina-cli-test.mjs",
+    "e2e": "node full4.js && node full5.js && node format-e2e.js && node routine-e2e.js && node push-client.js && node deeplink.js && node legacy.js && node mig.js && node cfg.js && node sync-e2e.mjs"
   },
   "devDependencies": { "playwright": "^1.48.0" }
 }

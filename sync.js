@@ -24,7 +24,7 @@
 
   const sig = (rec) => { const { updatedAt, ...rest } = rec; return JSON.stringify(rest); };
   /* dirty: lo que cambió aquí y aún no se subió (clave "col:id" → updatedAt del cambio). No depende del reloj. */
-  const newTracker = () => ({ sigs: {}, known: { tasks: {}, books: {} }, dirty: {} });
+  const newTracker = () => ({ sigs: {}, known: { tasks: {}, books: {}, routine: {} }, dirty: {} });
 
   /* Al iniciar: registra el estado actual como "ya conocido" (registros sin updatedAt reciben uno). */
   function prime(col, list, tracker, now) {
@@ -67,10 +67,10 @@
 
   /* Registros a subir: lo marcado como pendiente (tracker.dirty) y, además, lo modificado o borrado después de la
      última subida (así se suben también los datos de versiones anteriores, que no llevaban la lista de pendientes). */
-  function collectPush(tasks, books, tombs, lastPushAt, tracker) {
+  function collectPush(tasks, books, tombs, lastPushAt, tracker, more) { // more: otras colecciones, p. ej. { routine: [...] }
     const dirty = (tracker && tracker.dirty) || {};
     const out = [];
-    [["tasks", tasks], ["books", books]].forEach(([col, list]) => list.forEach((rec) => {
+    [["tasks", tasks], ["books", books], ...Object.entries(more || {})].forEach(([col, list]) => list.forEach((rec) => {
       if (rec.isNew) return;
       if (rec.updatedAt > lastPushAt || dirty[col + ":" + rec.id] !== undefined) out.push({ id: rec.id, col, updatedAt: rec.updatedAt, deleted: 0, data: JSON.stringify(rec) });
     }));
