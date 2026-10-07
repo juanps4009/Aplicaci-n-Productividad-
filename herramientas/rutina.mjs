@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Programa de escritorio para leer y cambiar la RUTINA, las OPORTUNIDADES y las TAREAS de la app
+/* Programa de escritorio para leer y cambiar la RUTINA, las OPORTUNIDADES, los INGRESOS y las TAREAS de la app
    (lo usa Claude en el computador del dueño, también en sus resúmenes programados).
    Habla con el mismo servidor de sincronización que la app y cifra igual (sync.js); la lógica es routine.js y work.js.
 
@@ -27,6 +27,11 @@
      oportunidad editar <id, texto o enlace> [--titulo] [--enlace] [--cierra] [--nota] [--fuente]
      oportunidad quitar <id, texto o enlace>
 
+     ingresos [--mes AAAA-MM] [--json]              trabajos pagados del mes (por defecto el actual) y su total
+     ingreso agregar "cliente" --monto 85000 [--fecha AAAA-MM-DD] [--tipo claude|presencial] [--nota "…"]
+     ingreso editar <id o cliente> [--cliente] [--monto] [--fecha] [--tipo] [--nota]
+     ingreso quitar <id o cliente>
+
      revisar                                        comprueba el código y la conexión */
 import { createRequire } from "node:module";
 import { readFileSync, existsSync } from "node:fs";
@@ -40,7 +45,7 @@ const Sync = require(join(ROOT, "sync.js"));
 const Routine = require(join(ROOT, "routine.js"));
 const Work = require(join(ROOT, "work.js"));
 
-const PREFIX = "rt:"; // la rutina y las oportunidades viajan por el servidor como «books» con este prefijo (ver app.js)
+const PREFIX = "rt:"; // la rutina, las oportunidades y los ingresos viajan por el servidor como «books» con este prefijo (ver app.js)
 export const CODE_FILE = process.env.PENDIENTES_CODIGO_ARCHIVO || join(homedir(), ".pendientes", "codigo.txt");
 
 class Fallo extends Error {}
@@ -79,7 +84,7 @@ async function post(ctx, since, records) {
   return res.json();
 }
 
-/* Baja todo: { list (rutina), work (oportunidades), tasks (tareas, tal cual), stamps ("col|id" → updatedAt) } */
+/* Baja todo: { list (rutina), work (oportunidades e ingresos), tasks (tareas, tal cual), stamps ("col|id" → updatedAt) } */
 async function pull(ctx) {
   const latest = new Map();
   let since = 0, more = true;
@@ -182,6 +187,21 @@ function parseStatus(v) {
   if (!s) fail(`Estado desconocido: «${v}». Usa: por revisar, apliqué, me respondieron o descartada.`);
   return s;
 }
+const INCOME_TYPE = { claude: "claude", "con claude": "claude", ia: "claude", presencial: "onsite", onsite: "onsite" };
+function parseIncomeType(v) {
+  const t = INCOME_TYPE[plain(v)];
+  if (!t) fail(`Tipo desconocido: «${v}». Usa claude o presencial.`);
+  return t;
+}
+function parseAmount(v) {
+  const n = v === true || v === undefined ? null : Work.cleanAmount(String(v));
+  if (n === null) fail(`Monto inválido: «${v === true ? "" : v}». Usa pesos enteros, por ejemplo 85000 o 1.250.000.`);
+  return n;
+}
+function parseMonth(v) {
+  if (!Work.isMonth(String(v))) fail(`Mes inválido: «${v}». Usa AAAA-MM, por ejemplo 2026-10.`);
+  return String(v);
+}
 function parseDate(v, what) {
   if (!Routine.isDateKey(String(v))) fail(`${what} inválida: «${v}». Usa AAAA-MM-DD.`);
   return String(v);
@@ -209,6 +229,17 @@ function findOpp(work, ref) {
   fail(hits.length ? `«${ref}» coincide con varias oportunidades: ${hits.map((h) => `${h.id} (${h.title})`).join("; ")}. Usa el id.` : `No hay ninguna oportunidad que coincida con «${ref}».`);
 }
 
+/* Un ingreso por su id ("m:…") o por un trozo del nombre del cliente */
+function findIncome(work, ref) {
+  if (!ref) fail("Falta decir qué ingreso (su id o parte del nombre del cliente).");
+  const all = Work.incomes(work);
+  const byId = all.find((r) => r.id === ref);
+  if (byId) return byId;
+  const hits = all.filter((r) => plain(r.client).includes(plain(ref)));
+  if (hits.length === 1) return hits[0];
+  fail(hits.length ? `«${ref}» coincide con varios ingresos: ${hits.map((h) => `${h.id} (${h.client}, ${h.date}, ${Work.money(h.amount)})`).join("; ")}. Usa el id.` : `No hay ningún ingreso que coincida con «${ref}».`);
+}
+
 const FREQ_OUT = { daily: "diaria", weekly: "semanal", monthly: "mensual" };
 const exportData = (list) => ({ rutina: Routine.items(list).map((it) => ({
   texto: it.text, frecuencia: FREQ_OUT[it.freq], ...(it.days.length ? { dias: it.days.map((d) => Routine.DAY_NAME[d - 1]) } : {}),
@@ -218,6 +249,8 @@ const exportData = (list) => ({ rutina: Routine.items(list).map((it) => ({
 const RANK = { high: 0, medium: 1, low: 2 };
 const pendingTasks = (tasks) => tasks.filter((t) => !t.done && String(t.text || "").trim())
   .sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999") || (RANK[a.priority] ?? 1) - (RANK[b.priority] ?? 1));
+
+const incomeSummary = (work, month) => { const t = Work.monthTotals(work, month); return { total: t.total, trabajos: t.count, conClaude: t.claude, presencial: t.onsite }; };
 
 function todayMarkdown(d) {
   const L = [`# Hoy — ${Routine.DAY_NAME[Routine.dow(d.hoy) - 1]} ${d.hoy}`, ""];
@@ -230,6 +263,8 @@ function todayMarkdown(d) {
   const c = d.oportunidades.cuenta;
   L.push("", "## Oportunidades", "", `${c.review} por revisar · ${c.applied} aplicadas · ${c.replied} con respuesta`);
   if (d.oportunidades.cierranPronto.length) L.push("", "Cierran pronto y siguen sin revisar:", ...d.oportunidades.cierranPronto.map((o) => `- ${o.titulo} — ${o.cierre}${o.enlace ? ` — ${o.enlace}` : ""}`));
+  const g = d.ingresos;
+  L.push("", `## Ingresos de ${Work.monthLabel(g.mes)}`, "", `${Work.money(g.total)} · ${g.trabajos} trabajo${g.trabajos === 1 ? "" : "s"} · Con Claude ${Work.money(g.conClaude)} · Presencial ${Work.money(g.presencial)}`);
   return L.join("\n");
 }
 
@@ -252,7 +287,7 @@ export async function run(argv, env = {}) {
 
   const { list, work, tasks, stamps } = await pull(ctx);
   if (cmd === "revisar") {
-    say(`Todo bien: el código es válido y el servidor responde. La rutina tiene ${Routine.items(list).length} pendiente(s) y hay ${Work.counts(work).total} oportunidad(es).`);
+    say(`Todo bien: el código es válido y el servidor responde. La rutina tiene ${Routine.items(list).length} pendiente(s) y hay ${Work.counts(work).total} oportunidad(es) y ${Work.incomes(work).length} ingreso(s).`);
     return out.join("\n");
   }
 
@@ -267,6 +302,7 @@ export async function run(argv, env = {}) {
     if (!Routine.isWeekKey(opt.semana)) fail(`Semana inválida: «${opt.semana}». Usa el formato 2026-W41.`);
     return opt.semana;
   };
+  const incLine = (r) => `${r.id}: ${r.client || "Sin cliente"}, ${r.date}, ${Work.money(r.amount)} (${Work.INCOME_LABEL[r.type].toLowerCase()})`;
   const oppLine = (o) => `${o.id}: ${o.title} (${Work.STATUS_LABEL[o.status].toLowerCase()}${o.closes ? `, cierra ${o.closes}` : ""})`;
 
   switch (cmd) {
@@ -279,6 +315,7 @@ export async function run(argv, env = {}) {
         rutina: { hechos: t.done, total: t.total, diarios: rows(t.daily), semanales: rows(t.weekly), mensuales: rows(t.monthly) },
         semana: { semana: s.week, etiqueta: s.label, hechos: s.done, tocaban: s.due, porcentaje: s.pct, dias: s.days.map((d) => ({ fecha: d.date, hechos: d.done, total: d.total, estado: d.state })) },
         oportunidades: { cuenta: Work.counts(work), cierranPronto: Work.closingSoon(work, today, 3).map((o) => ({ id: o.id, titulo: o.title, enlace: o.url, cierre: Work.closeInfo(o, today).text })) },
+        ingresos: { mes: today.slice(0, 7), ...incomeSummary(work, today.slice(0, 7)) },
       };
       say(opt.json ? JSON.stringify(data, null, 2) : todayMarkdown(data));
       return out.join("\n");
@@ -293,6 +330,11 @@ export async function run(argv, env = {}) {
     case "oportunidades":
       say(opt.json ? JSON.stringify({ hoy: today, cuenta: Work.counts(work), oportunidades: Work.opps(work, { all: !!opt.todas }) }, null, 2) : Work.toMarkdown(work, today, { all: !!opt.todas }));
       return out.join("\n");
+    case "ingresos": {
+      const month = opt.mes && opt.mes !== true ? parseMonth(opt.mes) : today.slice(0, 7);
+      say(opt.json ? JSON.stringify({ hoy: today, mes: month, ...incomeSummary(work, month), ingresos: Work.incomes(work, month) }, null, 2) : Work.incomeToMarkdown(work, month));
+      return out.join("\n");
+    }
     case "agregar": {
       const rec = Routine.addItem(list, { text: pos.slice(1).join(" "), freq: parseFreq(opt.frecuencia || "diaria"), days: opt.dias ? parseDays(opt.dias) : [] }, now(), uid());
       if (!rec) fail("Falta el texto del pendiente.");
@@ -397,6 +439,30 @@ export async function run(argv, env = {}) {
         Work.remove(work, o.id);
         say(`Oportunidad quitada: ${o.title}.`);
       } else fail("Con las oportunidades se puede: agregar, estado, editar o quitar (y «oportunidades» para verlas).");
+      break;
+    }
+    case "ingreso": {
+      const sub = pos[1];
+      const text = (v) => (v === true ? "" : String(v));
+      if (sub === "agregar") {
+        const client = pos.slice(2).join(" ");
+        if (!client.trim()) fail("Falta el nombre del cliente.");
+        const rec = Work.addIncome(work, { client, amount: parseAmount(opt.monto), date: dateOpt(), type: opt.tipo ? parseIncomeType(opt.tipo) : "claude", note: opt.nota ? text(opt.nota) : "" }, now(), uid());
+        say(`Ingreso añadido ${incLine(rec)}.`);
+      } else if (sub === "editar") {
+        const r = findIncome(work, pos[2]), data = {};
+        if (opt.cliente !== undefined) { if (!text(opt.cliente).trim()) fail("El cliente no puede quedar vacío."); data.client = text(opt.cliente); }
+        if (opt.monto !== undefined) data.amount = parseAmount(opt.monto);
+        if (opt.fecha !== undefined) data.date = parseDate(opt.fecha, "Fecha");
+        if (opt.tipo !== undefined) data.type = parseIncomeType(opt.tipo);
+        if (opt.nota !== undefined) data.note = text(opt.nota);
+        if (!Object.keys(data).length) fail("Di qué cambiar: --cliente, --monto, --fecha, --tipo o --nota.");
+        say(`Ingreso cambiado ${incLine(Work.updateIncome(work, r.id, data))}.`);
+      } else if (sub === "quitar") {
+        const r = findIncome(work, pos[2]);
+        Work.removeIncome(work, r.id);
+        say(`Ingreso quitado: ${r.client || "Sin cliente"} (${r.date}, ${Work.money(r.amount)}).`);
+      } else fail("Con los ingresos se puede: agregar, editar o quitar (y «ingresos» para verlos).");
       break;
     }
     default:

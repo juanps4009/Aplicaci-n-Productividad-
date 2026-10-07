@@ -133,6 +133,14 @@ await B.waitForFunction(() => document.querySelector('.wk-card .wk-title')?.text
 await B.click('.wk-card [data-action=wk-status]'); await B.click('#work-status-list [data-status=applied]'); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
 await A.waitForFunction(() => document.querySelector('.wk-card .wk-status')?.textContent.startsWith('Apliqué'), null, { timeout: 5000 }); ok('oportunidades: creada en A, aparece en B; B la marca «apliqué» y A lo ve');
 assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod.routine')).filter((r) => r.kind === 'item'))).length, 1); ok('no se mezclan con los resúmenes ni con la rutina');
+// ---- ingresos (Trabajo → Ingresos): mismo canal cifrado; el cambio que hace B vuelve a A
+await A.click('#work-view [data-view=income]'); await A.click('[data-action=inc-add]'); await A.fill('#inc-client', 'Tienda Luna'); await A.fill('#inc-amount', '85000'); await A.click('[data-action=inc-save]'); await A.waitForTimeout(1800);
+const inRows = env.DB.raw.prepare("SELECT col, data FROM records WHERE id LIKE 'rt:m:%'").all(); assert.strictEqual(inRows.length, 1); assert(inRows[0].col === 'books' && inRows[0].data.startsWith('e1:') && !/Luna|85000/.test(inRows[0].data));
+await B.click('#work-view [data-view=income]'); await B.evaluate(() => window.dispatchEvent(new Event('online')));
+await B.waitForFunction(() => document.querySelector('.inc-card .wk-title')?.textContent === 'Tienda Luna', null, { timeout: 5000 }); assert.strictEqual(await B.locator('#inc-total').innerText(), '$85.000');
+await B.click('.inc-card [data-action=inc-edit]'); await B.fill('#inc-amount', '120000'); await B.click('[data-action=inc-save]'); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
+await A.waitForFunction(() => document.querySelector('#inc-total')?.textContent === '$120.000', null, { timeout: 5000 }); ok('ingresos: creado en A, aparece en B; B cambia el monto y A lo ve (el servidor solo ve cifrado)');
+await A.click('#work-view [data-view=opps]'); await B.click('#work-view [data-view=opps]');
 await A.click('.nav-btn[data-tab=tasks]'); await B.click('.nav-btn[data-tab=tasks]');
 
 // ---- QR y enlace de vinculación

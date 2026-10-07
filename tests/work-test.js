@@ -55,4 +55,45 @@ const md = W.toMarkdown(L, '2026-10-07');
 assert(md.includes('1 por revisar · 1 aplicadas') && md.includes('- **Editor de video** — Apliqué — Cierra mañana · 8 oct') && md.includes('https://empleos.example.com/oferta/1') && md.includes('`o:x1`'));
 assert(W.toMarkdown([], '2026-10-07').includes('_No hay oportunidades activas._')); ok('borrar y resumen en Markdown');
 
+// ---- ingresos: validar y limpiar
+const I = [];
+const i1 = W.addIncome(I, { date: '2026-10-03', client: '  Ana   Pérez ', amount: '1.250.000', type: 'onsite', note: ' Clase de refuerzo\r\n2 horas ' }, 5000, uid());
+assert.deepStrictEqual(i1, { id: 'm:x4', kind: 'inc', date: '2026-10-03', client: 'Ana Pérez', amount: 1250000, type: 'onsite', note: 'Clase de refuerzo\n2 horas', createdAt: 5000 });
+const i2 = W.addIncome(I, { date: '2026-10-15', client: 'Tienda Luna', amount: 85000, type: 'inventado' }, 6000, uid()); assert.strictEqual(i2.type, 'claude');
+const i3 = W.addIncome(I, { date: '2026-10-15', client: 'Otra', amount: 40000 }, 7000, uid());
+const i4 = W.addIncome(I, { date: '2026-09-28', client: '', amount: '$ 300,000', type: 'claude' }, 8000, uid()); assert.strictEqual(i4.amount, 300000); assert.strictEqual(i4.client, '');
+assert.strictEqual(W.addIncome(I, { date: '2026-13-40', client: 'x', amount: 5 }, 1, 'mala'), null); assert.strictEqual(W.addIncome(I, { date: '', client: 'x', amount: 5 }, 1, 'mala'), null);
+['', 'abc', '-5', '12.5', '1e3', null, -1, NaN, Infinity, 1e11, {}].forEach((a) => assert.strictEqual(W.addIncome(I, { date: '2026-10-01', amount: a }, 1, 'mala'), null, String(a)));
+assert.strictEqual(I.length, 4); assert.strictEqual(W.cleanAmount(0), 0); assert.strictEqual(W.cleanAmount('85000'), 85000); assert.strictEqual(W.cleanAmount(99.6), 100);
+ok('ingresos: fecha y monto válidos (acepta «1.250.000» y «$ 300,000»); tipo y texto saneados');
+
+// ---- ingresos y oportunidades conviven en la misma lista, sin pisarse
+const M = [...L, ...I];
+assert.strictEqual(W.clean({ id: 'm:z', date: '2026-10-01', amount: 5, extra: 1, updatedAt: 9 }).extra, undefined); assert.strictEqual(W.clean({ id: 'm:z', date: '2026-10-01', amount: 5, updatedAt: 9 }).updatedAt, 9);
+assert.strictEqual(W.cleanList([...L, ...I, { id: 'm:mal', date: 'x', amount: 1 }, { id: 'i:a', text: 'rutina' }]).length, L.length + I.length);
+assert.deepStrictEqual(W.counts(M), W.counts(L)); assert.strictEqual(W.opps(M, { all: true }).length, L.length); assert.strictEqual(W.findByUrl(M, 'https://x.example.com/v').id, 'o:x3');
+assert.strictEqual(W.update(M, 'm:x4', { title: 'x' }), null); assert(!W.remove(M, 'm:x4')); assert.strictEqual(M.length, L.length + I.length);
+assert.strictEqual(W.updateIncome(M, 'o:x1', { amount: 1 }), null); assert(!W.removeIncome(M, 'o:x1'));
+assert(!W.toMarkdown(M, '2026-10-07').includes('Ana')); ok('ingresos y oportunidades conviven en la misma lista sin mezclarse');
+
+// ---- meses, totales y orden
+assert.strictEqual(W.monthKey('2026-10-15'), '2026-10'); assert.strictEqual(W.monthKey('mal'), ''); assert(W.isMonth('2026-10')); assert(!W.isMonth('2026-13')); assert(!W.isMonth('2026-1'));
+assert.strictEqual(W.shiftMonth('2026-10', 1), '2026-11'); assert.strictEqual(W.shiftMonth('2026-12', 1), '2027-01'); assert.strictEqual(W.shiftMonth('2026-01', -1), '2025-12'); assert.strictEqual(W.shiftMonth('2026-03', -14), '2025-01');
+assert.strictEqual(W.monthLabel('2026-10'), 'octubre 2026'); assert.strictEqual(W.monthLabel('2027-01'), 'enero 2027');
+assert.strictEqual(W.money(1250000), '$1.250.000'); assert.strictEqual(W.money(85000), '$85.000'); assert.strictEqual(W.money(0), '$0'); assert.strictEqual(W.money(999), '$999'); assert.strictEqual(W.money('x'), '$0');
+assert.deepStrictEqual(W.monthTotals(M, '2026-10'), { total: 1375000, count: 3, claude: 125000, onsite: 1250000 });
+assert.deepStrictEqual(W.monthTotals(M, '2026-09'), { total: 300000, count: 1, claude: 300000, onsite: 0 }); assert.deepStrictEqual(W.monthTotals(M, '2026-08'), { total: 0, count: 0, claude: 0, onsite: 0 });
+assert.deepStrictEqual(W.incomes(M, '2026-10').map((r) => r.id), ['m:x6', 'm:x5', 'm:x4']); // más reciente primero; a igual fecha, el último que se añadió
+assert.deepStrictEqual(W.monthsWithIncome(M), ['2026-10', '2026-09']); assert.deepStrictEqual(W.monthsWithIncome(L), []); ok('meses, totales por tipo y orden');
+
+// ---- editar y borrar ingresos
+assert.strictEqual(W.updateIncome(M, 'm:x4', { amount: '1.300.000', client: 'Ana P.' }).amount, 1300000); assert.strictEqual(W.updateIncome(M, 'm:x4', { amount: 'mucho' }), null); assert.strictEqual(M.find((r) => r.id === 'm:x4').amount, 1300000);
+assert.strictEqual(W.updateIncome(M, 'm:x4', { date: '' }), null); assert.strictEqual(W.updateIncome(M, 'm:nope', { amount: 1 }), null);
+assert(W.removeIncome(M, 'm:x7')); assert(!W.removeIncome(M, 'm:x7')); assert.strictEqual(W.monthTotals(M, '2026-09').total, 0); ok('editar y borrar ingresos');
+
+// ---- texto para Claude
+const imd = W.incomeToMarkdown(M, '2026-10');
+assert(imd.includes('# Ingresos — octubre 2026') && imd.includes('Total: $1.425.000 · 3 trabajos · Con Claude $125.000 · Presencial $1.300.000') && imd.includes('- 2026-10-03 — **Ana P.** — $1.300.000 — Presencial — Clase de refuerzo 2 horas') && imd.includes('`m:x4`'));
+assert(W.incomeToMarkdown([], '2026-10').includes('_No hay ingresos en este mes._')); ok('resumen de ingresos en Markdown');
+
 console.log('todas las pruebas de work.js pasan');

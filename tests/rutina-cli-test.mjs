@@ -117,11 +117,31 @@ clock += 3 * 86400000; assert((await cli('hoy')).includes('vence 2026-10-09 (VEN
 clock += 1000; out = await cli('oportunidad', 'quitar', 'Asistente'); assert(out.includes('Oportunidad quitada: Asistente virtual')); assert.strictEqual(JSON.parse(await cli('oportunidades', '--todas', '--json')).oportunidades.length, 1);
 ok('hoy: tareas pendientes, rutina del día, semana y oportunidades que cierran pronto (Markdown y JSON)');
 
+// ---- ingresos: agregar, ver por mes, editar, quitar; viajan cifrados como «books» rt:m:…
+clock += 1000; out = await cli('ingreso', 'agregar', 'Ana Pérez', '--monto', '1.250.000', '--fecha', '2026-10-03', '--tipo', 'presencial', '--nota', 'Clase de refuerzo');
+assert(/Ingreso añadido m:\w+: Ana Pérez, 2026-10-03, \$1\.250\.000 \(presencial\)/.test(out) && out.includes('Guardado en el servidor'));
+clock += 1000; out = await cli('ingreso', 'agregar', 'Tienda Luna', '--monto', '85000'); assert(out.includes('Tienda Luna, 2026-10-07, $85.000 (con claude)'));
+clock += 1000; await cli('ingreso', 'agregar', 'Cliente de septiembre', '--monto', '300000', '--fecha', '2026-09-28', '--tipo', 'claude');
+out = await cli('ingresos'); assert(out.includes('# Ingresos — octubre 2026') && out.includes('Total: $1.335.000 · 2 trabajos · Con Claude $85.000 · Presencial $1.250.000') && out.includes('**Tienda Luna** — $85.000 — Con Claude') && out.includes('Clase de refuerzo') && !out.includes('septiembre', 30));
+assert((await cli('ingresos', '--mes', '2026-09')).includes('Total: $300.000 · 1 trabajo ·')); assert((await cli('ingresos', '--mes', '2026-08')).includes('_No hay ingresos en este mes._'));
+const inc = JSON.parse(await cli('ingresos', '--json')); assert.strictEqual(inc.mes, '2026-10'); assert.strictEqual(inc.total, 1335000); assert.strictEqual(inc.ingresos.length, 2); assert.strictEqual(inc.ingresos[1].amount, 1250000);
+assert(!/Ana|Luna|1250000|Clase/.test(rows().map((r) => r.id + r.data).join('|'))); assert(rows().some((r) => /^rt:m:/.test(r.id) && r.col === 'books'));
+clock += 1000; out = await cli('ingreso', 'editar', 'Luna', '--monto', '95000', '--tipo', 'presencial'); assert(out.includes('Tienda Luna, 2026-10-07, $95.000 (presencial)'));
+assert((await cli('ingresos')).includes('Total: $1.345.000 · 2 trabajos · Con Claude $0 · Presencial $1.345.000'));
+await assert.rejects(cli('ingreso', 'agregar', 'X'), /Monto inválido/); await assert.rejects(cli('ingreso', 'agregar', 'X', '--monto', 'mucho'), /Monto inválido/); await assert.rejects(cli('ingreso', 'agregar', '--monto', '5'), /Falta el nombre del cliente/);
+await assert.rejects(cli('ingreso', 'agregar', 'X', '--monto', '5', '--tipo', 'volando'), /Tipo desconocido/); await assert.rejects(cli('ingreso', 'agregar', 'X', '--monto', '5', '--fecha', '2026-13-01'), /Fecha inválida/);
+await assert.rejects(cli('ingresos', '--mes', 'octubre'), /Mes inválido/); await assert.rejects(cli('ingreso', 'editar', 'nadie', '--monto', '5'), /No hay ningún ingreso/); await assert.rejects(cli('ingreso', 'editar', 'Luna'), /Di qué cambiar/); await assert.rejects(cli('ingreso', 'archivar', 'x'), /agregar, editar o quitar/);
+await cli('ingreso', 'agregar', 'Ana López', '--monto', '10000'); await assert.rejects(cli('ingreso', 'quitar', 'Ana'), /coincide con varios ingresos/);
+const hoy2 = JSON.parse(await cli('hoy', '--json')); assert.deepStrictEqual(hoy2.ingresos, { mes: '2026-10', total: 1355000, trabajos: 3, conClaude: 10000, presencial: 1345000 }); assert((await cli('hoy')).includes('## Ingresos de octubre 2026\n\n$1.355.000 · 3 trabajos'));
+clock += 1000; out = await cli('ingreso', 'quitar', 'Ana López'); assert(out.includes('Ingreso quitado: Ana López')); assert((await cli('ingresos')).includes('Total: $1.345.000 · 2 trabajos'));
+assert.strictEqual((await cli('oportunidades', '--todas')).includes('Ana'), false); assert((await cli('ver')).includes('Hacer resumen del libro')); // no se mezclan con la rutina ni con las oportunidades
+ok('ingresos: agregar, ver por mes (Markdown y JSON), editar y quitar; cifrados como «books» rt:m:…; entran en «hoy»');
+
 // ---- el código: variable de entorno PENDIENTES_CODIGO o archivo local; nunca se imprime; con otro código no se ve nada
 const sinCodigo = { ...base, code: undefined, envCode: '' };
 await assert.rejects(run(['ver'], { ...sinCodigo, codeFile: join(tmp, 'no-existe.txt') }), /Falta tu código de sincronización[\s\S]*PENDIENTES_CODIGO/);
 writeFileSync(join(tmp, 'malo.txt'), 'hola'); await assert.rejects(run(['ver'], { ...sinCodigo, codeFile: join(tmp, 'malo.txt') }), /no contiene un código válido/);
-writeFileSync(join(tmp, 'bueno.txt'), '  ' + Sync.formatCode(code).toLowerCase() + '\r\n'); assert((await run(['revisar'], { ...sinCodigo, codeFile: join(tmp, 'bueno.txt') })).includes('3 pendiente(s) y hay 1 oportunidad(es)'));
+writeFileSync(join(tmp, 'bueno.txt'), '  ' + Sync.formatCode(code).toLowerCase() + '\r\n'); assert((await run(['revisar'], { ...sinCodigo, codeFile: join(tmp, 'bueno.txt') })).includes('3 pendiente(s) y hay 1 oportunidad(es) y 3 ingreso(s).'));
 assert((await run(['revisar'], { ...sinCodigo, envCode: Sync.formatCode(code), codeFile: join(tmp, 'malo.txt') })).includes('3 pendiente(s)')); // la variable de entorno manda sobre el archivo
 await assert.rejects(run(['ver'], { ...sinCodigo, envCode: 'no-es-un-codigo', codeFile: join(tmp, 'bueno.txt') }), /PENDIENTES_CODIGO no contiene un código válido/);
 const otro = Sync.makeCode(crypto.getRandomValues(new Uint8Array(20))); assert((await run(['ver'], { ...base, code: otro })).includes('_Sin pendientes diarios._')); assert((await run(['oportunidades', '--todas'], { ...base, code: otro })).includes('_No hay oportunidades._'));
