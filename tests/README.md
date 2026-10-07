@@ -25,6 +25,9 @@ npm run e2e
 | `rem-test.js` | `reminders.js`: cálculo de avisos (una vez, antes del vencimiento, diario, semanal, cada X h), por dispositivo |
 | `sync-test.js` | `sync.js`: códigos, sellos de cambio, borrados, fusión «gana lo más reciente» |
 | `rt-test.js` | `richtext.js`: texto con formato (tramos de negrita, colores, tamaño; limpieza de datos ajenos; HTML seguro) |
+| `routine-test.js` | `routine.js`: periodos (día, semana ISO, mes), tachar/destachar, secciones de la Rutina y cumplimiento semanal |
+| `routine-e2e.js` | Pestaña Rutina en el navegador: crear, tachar, cambio de día, tarjeta de la semana, editar, borrar |
+| `rutina-cli-e2e.mjs` | `scripts/rutina.mjs` contra el servidor real (D1 simulada) y la app: lo que agrega/tacha Claude llega a la app y al revés, todo cifrado |
 | `sync-crypto-test.js` | Cifrado de extremo a extremo (AES-GCM + HKDF); imprime un vector que usa la prueba Java del widget |
 | `sw-test.js` | `sw.js`: descifrado de avisos push con la clave del dispositivo |
 | `worker-test.mjs` | `worker/index.js`: API, cifrado Web Push, firma VAPID, sincronización, límites (con D1 simulada) |

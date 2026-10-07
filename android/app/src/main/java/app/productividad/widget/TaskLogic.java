@@ -138,7 +138,9 @@ final class TaskLogic {
                 } else {
                     String plain = TaskCrypto.decrypt(key, r.getString("data"), id + "|tasks");
                     if (plain == null) continue; // cifrado con otro código o alterado: se ignora
-                    cache.tasks.put(id, toTask(id, new JSONObject(plain), updatedAt));
+                    JSONObject j = new JSONObject(plain);
+                    if ("routine".equals(j.optString("kind"))) { cache.tasks.remove(id); continue; } // la Rutina no sale en el widget
+                    cache.tasks.put(id, toTask(id, j, updatedAt));
                 }
             }
             since = res.getLong("seq");

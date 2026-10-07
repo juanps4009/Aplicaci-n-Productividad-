@@ -3,6 +3,7 @@
 App web instalable (PWA) para tareas con notas y recordatorios, y resúmenes de libros. Todo se guarda en tu dispositivo.
 
 - **Para continuar el trabajo (notas para Claude):** `NOTAS.md`. Pruebas: `tests/README.md`.
+- **Rutina:** pestaña con pendientes diarios, semanales y mensuales que se tachan con un clic, y tu cumplimiento de la semana. Claude puede leerla y editarla con `scripts/rutina.mjs`.
 - **Acceso directo en Windows:** carpeta `escritorio/` (doble clic en `Crear-acceso-directo.cmd`).
 - **Usarla:** abre la dirección de la app (GitHub Pages) y, en el celular, «Añadir a pantalla de inicio». En el computador, el icono «Instalar» de Chrome o Edge.
 - **Sincronizar celular y computador:** Ajustes → Tus dispositivos → *Crear código nuevo*, y en el otro dispositivo escribe el código (o escanea el QR). Los datos se cifran en tu dispositivo.

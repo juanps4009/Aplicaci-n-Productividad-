@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.16.0-beta";
+const APP_VERSION = "0.17.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -69,6 +69,8 @@ const state = {
   menuTask: null,          // tarea del menú ⋮
   notesTask: null,         // tarea abierta en notas
   editingTask: null,       // id de tarea en edición
+  editingRoutine: null,    // id de pendiente de rutina en edición
+  newFreq: "daily",        // frecuencia elegida para el próximo pendiente de rutina
 };
 
 /* Migraciones de datos guardados por versiones anteriores */
@@ -131,13 +133,12 @@ function askConfirm(message, okLabel = "Eliminar") {
 }
 
 /* ---------- Navegación ---------- */
-const TITLES = { tasks: "Pendientes", books: "Resúmenes" };
+const TITLES = { tasks: "Pendientes", routine: "Rutina", books: "Resúmenes" };
 
 function showTab(tab) {
   state.tab = tab;
   save(KEYS.tab, tab);
-  $("#tab-tasks").classList.toggle("hidden", tab !== "tasks");
-  $("#tab-books").classList.toggle("hidden", tab !== "books");
+  Object.keys(TITLES).forEach((k) => $("#tab-" + k).classList.toggle("hidden", tab !== k));
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $("#page-title").textContent = TITLES[tab];
   $("#open-filter").classList.toggle("hidden", tab !== "tasks");
@@ -245,8 +246,9 @@ function renderTasks() {
   $$("#filters button").forEach((b) => b.classList.toggle("active", b.dataset.filter === state.filter));
   $("#filter-badge").classList.toggle("hidden", state.filter === "all");
 
-  const active = state.tasks.filter((t) => !t.done);
-  const done = state.tasks.filter((t) => t.done);
+  const regular = regularTasks();
+  const active = regular.filter((t) => !t.done);
+  const done = regular.filter((t) => t.done);
   const groups = [];
 
   if (state.filter !== "done") {
@@ -261,8 +263,8 @@ function renderTasks() {
 
   $("#task-groups").innerHTML = groups.map((g) => groupHTML(g, g.key === "done" && state.filter === "done")).join("");
   $("#task-empty").classList.toggle("hidden", groups.length > 0);
-  $("#task-counter").textContent = state.tasks.length
-    ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${state.tasks.length}` : "";
+  $("#task-counter").textContent = regular.length
+    ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${regular.length}` : "";
   $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
   renderAttention();
 }
@@ -283,7 +285,9 @@ function commitBooks() {
   saveSync();
   scheduleSync();
 }
-function persistTasks() { commitTasks(); renderTasks(); }
+function persistTasks() { commitTasks(); renderTasks(); renderRoutine(); }
+/* Las tareas normales (los pendientes de la Rutina viven en la misma lista para sincronizarse igual) */
+const regularTasks = () => state.tasks.filter((t) => !Routine.isRoutine(t));
 
 $("#task-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -335,8 +339,12 @@ $("#filters").addEventListener("click", (e) => {
 });
 
 $("#menu-edit").addEventListener("click", () => {
-  state.editingTask = state.menuTask;
   closeSheet("#task-menu");
+  if (Routine.isRoutine(state.tasks.find((t) => t.id === state.menuTask))) {
+    state.editingRoutine = state.menuTask;
+    return renderRoutine();
+  }
+  state.editingTask = state.menuTask;
   renderTasks();
 });
 $("#menu-delete").addEventListener("click", () => {
@@ -415,6 +423,144 @@ $("#task-groups").addEventListener("change", (e) => {
   const task = li && state.tasks.find((t) => t.id === li.dataset.id);
   if (!task || e.target.type !== "checkbox") return;
   task.done = e.target.checked;
+  persistTasks();
+});
+
+/* ---------- Rutina: pendientes diarios, semanales y mensuales que se tachan con un clic ---------- */
+const FREQ_CHIPS = [["daily", "Diaria"], ["weekdays", "Entre semana"], ["weekly", "Semanal"], ["monthly", "Mensual"]];
+const WEEK_LETTERS = ["L", "M", "X", "J", "V", "S", "D"];
+let routineDay = ""; // día con el que se dibujó la rutina (al cambiar, todo vuelve a salir sin tachar)
+
+const freqChipsHTML = (selected, role) => FREQ_CHIPS.map(([key, label]) =>
+  `<button type="button" class="freq-chip ${key === selected ? "active" : ""}" data-freq="${key}" data-for="${role}" role="radio" aria-checked="${key === selected}">${label}</button>`).join("");
+
+function routineItemHTML(t, now) {
+  if (state.editingRoutine === t.id) {
+    return `
+    <li class="task-item editing" data-id="${t.id}">
+      <input class="field" data-edit="rtext" maxlength="200" value="${esc(t.text)}" aria-label="Texto del pendiente">
+      <div class="freq-chips" data-edit="freq" data-value="${t.freq}">${freqChipsHTML(t.freq, "edit")}</div>
+      <div class="flex gap-2">
+        <button data-action="cancel-routine" class="btn-secondary flex-1">Cancelar</button>
+        <button data-action="save-routine" class="btn-primary flex-1">Guardar</button>
+      </div>
+    </li>`;
+  }
+  const done = Routine.isDone(t, now);
+  const next = Reminders.nextFires(t, Date.now(), 60, 1, deviceId())[0];
+  const meta = [t.freq === "weekdays" ? "Entre semana" : "", next ? `🔔 ${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
+  return `
+    <li class="task-item routine-item ${done ? "done" : ""}" data-id="${t.id}">
+      <input type="checkbox" ${done ? "checked" : ""} aria-label="Hecho">
+      <div class="task-main">
+        <div class="task-text">${esc(t.text)}</div>
+        ${meta ? `<div class="due-label">${meta}</div>` : ""}
+      </div>
+      <button class="icon-btn" data-action="menu-task" aria-label="Más opciones" style="font-size:1.4rem;font-weight:700">⋮</button>
+    </li>`;
+}
+
+function weekCardHTML(now) {
+  const w = Routine.weekStats(state.tasks, now);
+  const todayKey = Routine.dayKey(now);
+  const dots = w.days.map((d, i) => {
+    const cls = d.future ? "future" : !d.total ? "rest" : d.done === d.total ? "full" : d.done ? "part" : d.date === todayKey ? "" : "none"; // hoy aún no cuenta como fallado
+    return `<div class="wd ${cls} ${d.date === todayKey ? "today" : ""}" title="${d.date}: ${d.done} de ${d.total}"><i></i><small>${WEEK_LETTERS[i]}</small></div>`;
+  }).join("");
+  return `
+    <div class="week-head"><b>Tu semana</b><span>${w.total ? `${w.pct}% · ${w.done} de ${w.total}` : "Sin pendientes aún"}</span></div>
+    <div class="week-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${w.pct}"><span style="width:${w.pct}%"></span></div>
+    <div class="week-days">${dots}</div>`;
+}
+
+function renderRoutine() {
+  const now = new Date();
+  routineDay = Routine.dayKey(now);
+  $("#routine-freq").innerHTML = freqChipsHTML(state.newFreq, "new");
+  const sections = Routine.sections(state.tasks, now).filter((s) => s.items.length);
+  $("#routine-groups").innerHTML = sections.map((s) => {
+    const key = "r-" + s.key, collapsed = !!state.collapsed[key];
+    return `
+    <section class="group ${collapsed ? "collapsed" : ""}" data-group="${key}">
+      <button class="group-head" data-action="toggle-group" aria-expanded="${!collapsed}">
+        <span>${s.label}</span><span class="count">${s.done}/${s.items.length}</span><span class="chevron">▾</span>
+      </button>
+      ${collapsed ? "" : `<ul class="group-list">${s.items.map((t) => routineItemHTML(t, now)).join("")}</ul>`}
+    </section>`;
+  }).join("");
+  const any = state.tasks.some(Routine.isRoutine);
+  $("#routine-empty").classList.toggle("hidden", any);
+  $("#routine-week").classList.toggle("hidden", !any);
+  if (any) $("#routine-week").innerHTML = weekCardHTML(now);
+}
+
+$("#routine-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("#routine-input").value.trim();
+  if (!text) return;
+  state.tasks.push(Routine.make(text, state.newFreq, uid(), Date.now()));
+  $("#routine-input").value = "";
+  persistTasks();
+});
+$("#routine-freq").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-freq]");
+  if (!chip) return;
+  state.newFreq = chip.dataset.freq;
+  $("#routine-freq").innerHTML = freqChipsHTML(state.newFreq, "new");
+});
+
+$("#routine-groups").addEventListener("click", (e) => {
+  const chip = e.target.closest(".freq-chip[data-for='edit']");
+  if (chip) {
+    const box = chip.closest("[data-edit='freq']");
+    box.dataset.value = chip.dataset.freq;
+    box.innerHTML = freqChipsHTML(chip.dataset.freq, "edit");
+    return;
+  }
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const li = btn.closest("li[data-id]");
+  const task = li && state.tasks.find((t) => t.id === li.dataset.id);
+  switch (btn.dataset.action) {
+    case "toggle-group": {
+      const key = btn.closest("[data-group]").dataset.group;
+      state.collapsed[key] = !state.collapsed[key];
+      save(KEYS.collapsed, state.collapsed);
+      renderRoutine();
+      break;
+    }
+    case "menu-task":
+      if (task) {
+        state.menuTask = task.id;
+        $("#task-menu-title").textContent = task.text;
+        openSheet("#task-menu");
+      }
+      break;
+    case "cancel-routine":
+      state.editingRoutine = null;
+      renderRoutine();
+      break;
+    case "save-routine": {
+      if (!task) break;
+      const text = li.querySelector("[data-edit='rtext']").value.trim();
+      if (!text) break;
+      task.text = text;
+      delete task.marks;
+      task.freq = Routine.cleanFreq(li.querySelector("[data-edit='freq']").dataset.value);
+      state.editingRoutine = null;
+      persistTasks();
+      break;
+    }
+  }
+});
+$("#routine-groups").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.dataset.edit === "rtext") { e.preventDefault(); e.target.closest("li").querySelector("[data-action='save-routine']").click(); }
+});
+$("#routine-groups").addEventListener("change", (e) => {
+  const li = e.target.closest("li[data-id]");
+  const task = li && state.tasks.find((t) => t.id === li.dataset.id);
+  if (!task || e.target.type !== "checkbox") return;
+  if (Routine.setDone(task, new Date(), e.target.checked, Date.now())) acknowledge(task); // tachado: sus avisos quedan atendidos
   persistTasks();
 });
 
@@ -743,10 +889,11 @@ function runReminders() {
     });
     Reminders.dueFires(task, now, state.remState, dev).forEach(({ rem, ms }) => {
       const st = state.remState[rem.id];
+      const already = Routine.isRoutine(task) && Routine.isDone(task, new Date(ms)); // pendiente de rutina ya tachado en ese periodo
       st.lastFired = ms;
-      st.acked = !state.settings.notifyHere; // sin avisos en este dispositivo: se descartan en silencio
+      st.acked = already || !state.settings.notifyHere; // sin avisos en este dispositivo: se descartan en silencio
       changed = true;
-      if (state.settings.notifyHere && now - ms <= 3 * 60000) { // si se perdió hace rato, solo queda en "avisos por atender"
+      if (!already && state.settings.notifyHere && now - ms <= 3 * 60000) { // si se perdió hace rato, solo queda en "avisos por atender"
         showNotice(task.text, task.due ? `Vence ${dueLabel(task.due)}` : "Recordatorio", `r-${rem.id}-${ms}`);
       }
     });
@@ -972,7 +1119,7 @@ function renderSyncBody() {
     return;
   }
   const status = syncInfo.kind === "busy" ? "Sincronizando…"
-    : syncInfo.kind === "ok" ? `Sincronizado ${agoText(syncInfo.at)} · ${state.tasks.length} tarea${state.tasks.length === 1 ? "" : "s"} · ${state.books.filter((b) => !b.isNew).length} resumen${state.books.length === 1 ? "" : "es"}`
+    : syncInfo.kind === "ok" ? `Sincronizado ${agoText(syncInfo.at)} · ${regularTasks().length} tarea${regularTasks().length === 1 ? "" : "s"} · ${state.books.filter((b) => !b.isNew).length} resumen${state.books.length === 1 ? "" : "es"}`
       : syncInfo.text;
   box.innerHTML = `
     <div class="sync-actions">
@@ -1205,6 +1352,7 @@ async function syncNow() {
       if (pendingFocus && focusTask(pendingFocus)) pendingFocus = null;
       runReminders();
       if (state.editingTask === null) renderTasks();
+      if (state.editingRoutine === null) renderRoutine();
       if (state.editing.size) renderBookList(); else renderBooks();
       refreshOpenEditors(open);
       schedulePushSync();
@@ -1235,6 +1383,12 @@ function focusTask(id) {
   if (!task) return false;
   if (state.openBook) closeBook();
   if (state.notesTask) closeNotes();
+  if (Routine.isRoutine(task)) {
+    showTab("routine");
+    renderRoutine();
+    flashItem(id);
+    return true;
+  }
   showTab("tasks");
   if (state.filter !== "all") { state.filter = "all"; save(KEYS.filter, state.filter); }
   // abrir la sección plegada que contiene la tarea
@@ -1242,13 +1396,16 @@ function focusTask(id) {
   const key = task.done ? "done" : group && group.key;
   if (key && state.collapsed[key]) { state.collapsed[key] = false; save(KEYS.collapsed, state.collapsed); }
   renderTasks();
-  const el = document.querySelector(`li[data-id="${CSS.escape(id)}"]`);
+  flashItem(id);
+  return true;
+}
+function flashItem(id) {
+  const el = document.querySelector(`.tab-panel:not(.hidden) li[data-id="${CSS.escape(id)}"]`);
   if (el) {
     el.scrollIntoView({ block: "center", behavior: "smooth" });
     el.classList.add("flash");
     setTimeout(() => el.classList.remove("flash"), 2400);
   }
-  return true;
 }
 
 function handleTaskHash() {
@@ -1888,6 +2045,7 @@ initTheme();
 applyTheme();
 showTab(state.tab);
 renderTasks();
+renderRoutine();
 renderBooks();
 renderSettings();
 // migración de datos: registra el estado actual y guarda (sellos de sincronización, estado de avisos)
@@ -1903,4 +2061,8 @@ handleTaskHash();
 window.addEventListener("hashchange", () => { handleLinkHash(); handleTaskHash(); });
 scheduleSync(300);
 setInterval(() => { if (!document.hidden) scheduleSync(0); }, 20000); // con la app a la vista, mira si hay cambios cada 20 s
-setInterval(() => { runReminders(); if (state.editingTask === null) renderTasks(); }, 30000);
+setInterval(() => {
+  runReminders();
+  if (state.editingTask === null) renderTasks();
+  if (state.editingRoutine === null && Routine.dayKey(new Date()) !== routineDay) renderRoutine(); // pasó la medianoche: la rutina empieza de nuevo
+}, 30000);
