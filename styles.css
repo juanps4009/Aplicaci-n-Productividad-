@@ -496,6 +496,16 @@ a.btn-primary { display: block; }
 .wk-close.late { color: var(--danger); font-weight: 600; }
 .wk-note { font-size: 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wk-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.2rem; }
+#work-view { margin-bottom: 0.75rem; }
+.inc-month { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.inc-month .icon-btn:disabled { opacity: 0.3; }
+.inc-total { margin-top: 0.4rem; padding: 1rem; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; }
+.inc-sum { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; margin: 0.15rem 0; }
+.inc-list { display: grid; gap: 0.5rem; margin-top: 0.9rem; }
+.inc-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; min-height: 56px; padding: 0.6rem 1rem; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 0.85rem; }
+.inc-row > span:first-child { display: grid; }
+.inc-client { font-weight: 600; overflow-wrap: anywhere; }
+.inc-amount { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .wk-link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 0.9rem; font-size: 0.9rem; text-decoration: none; color: var(--text); }
 .menu-list button.active { font-weight: 700; color: var(--accent); }
 .bottom-nav .nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

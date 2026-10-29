@@ -55,4 +55,27 @@ const md = W.toMarkdown(L, '2026-10-07');
 assert(md.includes('1 por revisar · 1 aplicadas') && md.includes('- **Editor de video** — Apliqué — Cierra mañana · 8 oct') && md.includes('https://empleos.example.com/oferta/1') && md.includes('`o:x1`'));
 assert(W.toMarkdown([], '2026-10-07').includes('_No hay oportunidades activas._')); ok('borrar y resumen en Markdown');
 
+// ---- ingresos: fecha, cliente, monto en pesos y tipo; total del mes
+const I = [{ id: 'o:x', kind: 'opp', title: 'Oferta', url: '', closes: '', status: 'review', source: '', note: '', createdAt: 1 }];
+const i1 = W.addIncome(I, { date: '2026-10-05', client: '  Ana   Pérez ', amount: '$ 150.000', type: 'presencial' }, 10, 'a');
+assert.deepStrictEqual(i1, { id: 'm:a', kind: 'income', date: '2026-10-05', client: 'Ana Pérez', amount: 150000, type: 'presencial', createdAt: 10 });
+W.addIncome(I, { date: '2026-10-20', client: 'Luis', amount: 80000 }, 20, 'b'); W.addIncome(I, { date: '2026-09-30', client: 'Sep', amount: '1.000.000', type: 'claude' }, 30, 'c');
+assert.strictEqual(I.find((r) => r.id === 'm:b').type, 'claude');
+[['', '2026-10-01', 5], ['x', '2026-02-30', 5], ['x', '2026-10-01', 0], ['x', '2026-10-01', '-5'], ['x', '2026-10-01', '150.000,50'], ['x', '2026-10-01', '1,5'], ['x', '2026-10-01', 'mil'], ['x', '2026-10-01', 1.5]]
+  .forEach(([client, date, amount]) => assert.strictEqual(W.addIncome(I, { client, date, amount }, 1, 'z'), null, String(amount)));
+assert.strictEqual(I.length, 4); ok('ingresos: monto en pesos sin centavos, fecha y cliente obligatorios');
+
+assert.deepStrictEqual(W.incomes(I, '2026-10').map((r) => r.id), ['m:b', 'm:a']); assert.deepStrictEqual(W.monthTotal(I, '2026-10'), { total: 230000, count: 2, byType: { claude: 80000, presencial: 150000 } });
+assert.deepStrictEqual(W.monthTotal(I, '2026-11'), { total: 0, count: 0, byType: { claude: 0, presencial: 0 } });
+assert.strictEqual(W.money(1234567), '$ 1.234.567'); assert.strictEqual(W.money(0), '$ 0'); assert.strictEqual(W.monthLabel('2026-10'), 'Octubre 2026');
+assert.strictEqual(W.shiftMonth('2026-01', -1), '2025-12'); assert.strictEqual(W.shiftMonth('2026-12', 1), '2027-01'); ok('total del mes con desglose por tipo; meses y montos legibles');
+
+assert.strictEqual(W.update(I, 'm:a', { amount: '200.000', type: 'claude' }).amount, 200000); assert.strictEqual(W.update(I, 'm:a', { client: ' ' }), null); assert.strictEqual(I.find((r) => r.id === 'm:a').client, 'Ana Pérez');
+assert.strictEqual(W.setStatus(I, 'm:a', 'applied'), null); assert.deepStrictEqual(W.counts(I), { review: 1, applied: 0, replied: 0, discarded: 0, total: 1 }); assert.deepStrictEqual(W.opps(I).map((o) => o.id), ['o:x']);
+assert(W.remove(I, 'm:c')); assert.strictEqual(W.monthTotal(I, '2026-09').count, 0);
+const dirty = W.clean({ id: 'm:q', date: '2026-10-01', client: '<b>x</b>', amount: 5, type: 'otro', extra: 1, updatedAt: 9 });
+assert.deepStrictEqual(dirty, { id: 'm:q', updatedAt: 9, kind: 'income', date: '2026-10-01', client: '<b>x</b>', amount: 5, type: 'claude', createdAt: 0 });
+assert.strictEqual(W.cleanList([{ id: 'm:1', date: '2026-10-01', client: 'a', amount: 1 }, { id: 'm:', client: 'a' }, { id: 'o:1', title: 'b' }]).length, 2);
+ok('editar, borrar y limpiar ingresos; no se mezclan con las oportunidades');
+
 console.log('todas las pruebas de work.js pasan');

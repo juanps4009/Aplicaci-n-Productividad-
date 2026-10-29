@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.19.2-beta";
+const APP_VERSION = "0.20.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -71,6 +71,8 @@ const state = {
   routine: [],             // rutina: ítems, marcas por periodo y comentarios semanales (se llena con setRoutine)
   work: [],                // trabajo: oportunidades (viajan por el mismo canal que la rutina)
   workAll: false,          // en «Trabajo», mostrar también las descartadas
+  workView: "opps",        // en «Trabajo»: "opps" (oportunidades) o "income" (ingresos)
+  incMonth: null,          // mes que se mira en Ingresos, "AAAA-MM" (null = el actual)
   routineOther: [],        // registros de ese canal que esta versión no entiende: se conservan y sincronizan sin tocarlos
   routineView: "today",    // "today" o "week" (resumen semanal)
   routineWeek: null,       // semana que se mira en el resumen (null = la actual)
@@ -93,7 +95,7 @@ const state = {
   editingTask: null,       // id de tarea en edición
 };
 
-/* Reparte los registros del canal de la rutina: la rutina (saneada) a state.routine, las oportunidades a state.work
+/* Reparte los registros del canal de la rutina: la rutina (saneada) a state.routine, oportunidades e ingresos a state.work
    y lo que esta versión no entiende a routineOther */
 function setRoutine(all) {
   state.routine = [];
@@ -2328,10 +2330,16 @@ $("#routine-body").addEventListener("click", (e) => {
 
 /* ---------- Trabajo: oportunidades (ofertas y trabajos que quieres seguir) ----------
    La lógica está en work.js. Se guardan y sincronizan por el mismo canal que la rutina (commitRoutine). */
-let workDraft = null;      // oportunidad que se está añadiendo o editando
+let workDraft = null;      // oportunidad o ingreso que se está añadiendo o editando
 let workStatusId = null;   // oportunidad cuyo estado se está cambiando
 
 function renderWork() {
+  const views = `
+    <div class="seg" id="work-view" role="tablist" aria-label="Qué ver en Trabajo">
+      <button data-view="opps" class="${state.workView === "opps" ? "active" : ""}" role="tab">Oportunidades</button>
+      <button data-view="income" class="${state.workView === "income" ? "active" : ""}" role="tab">Ingresos</button>
+    </div>`;
+  if (state.workView === "income") return renderIncome(views);
   const now = today(), c = Work.counts(state.work);
   const rows = Work.opps(state.work, { all: state.workAll });
   const cards = rows.map((o) => {
@@ -2351,7 +2359,7 @@ function renderWork() {
         </div>
       </article>`;
   }).join("");
-  $("#work-body").innerHTML = `
+  $("#work-body").innerHTML = `${views}
     <button class="btn-primary w-full py-3" data-action="wk-add">+ Añadir oportunidad</button>
     ${c.total ? `
       <p class="muted mt-3 text-sm" id="work-count">${c.review} por revisar · ${c.applied} aplicada${c.applied === 1 ? "" : "s"} · ${c.replied} con respuesta</p>
@@ -2361,6 +2369,57 @@ function renderWork() {
       </div>` : ""}
     <div class="wk-list">${cards}</div>
     ${rows.length ? "" : `<p class="muted py-10 text-center">${c.total ? "No hay oportunidades activas." : "Aún no hay oportunidades. Aquí aparecerán las ofertas que quieras seguir, con su enlace y su fecha de cierre."}</p>`}`;
+}
+
+/* Ingresos: total del mes con su desglose por tipo, y la lista de trabajos pagados */
+function renderIncome(views) {
+  const month = state.incMonth || today().slice(0, 7), t = Work.monthTotal(state.work, month);
+  const rows = Work.incomes(state.work, month).map((r) => `
+    <button class="inc-row" data-action="inc-edit" data-id="${esc(r.id)}">
+      <span class="min-w-0"><span class="inc-client">${esc(r.client)}</span>
+        <span class="muted text-xs">${new Date(r.date + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short" })} · ${Work.TYPE_LABEL[r.type]}</span></span>
+      <span class="inc-amount">${Work.money(r.amount)}</span>
+    </button>`).join("");
+  $("#work-body").innerHTML = `${views}
+    <div class="inc-month">
+      <button class="icon-btn" data-action="inc-prev" aria-label="Mes anterior">‹</button>
+      <strong id="inc-month">${Work.monthLabel(month)}</strong>
+      <button class="icon-btn" data-action="inc-next" aria-label="Mes siguiente" ${month >= today().slice(0, 7) ? "disabled" : ""}>›</button>
+    </div>
+    <div class="inc-total">
+      <p class="muted text-sm">Total del mes</p>
+      <p class="inc-sum" id="inc-total">${Work.money(t.total)}</p>
+      <p class="muted text-sm" id="inc-split">${Work.TYPES.map((k) => `${Work.TYPE_LABEL[k]} ${Work.money(t.byType[k])}`).join(" · ")}</p>
+    </div>
+    <button class="btn-primary mt-3 w-full py-3" data-action="inc-add">+ Añadir ingreso</button>
+    <div class="inc-list">${rows}</div>
+    ${t.count ? "" : `<p class="muted py-10 text-center">No hay ingresos en ${Work.monthLabel(month).toLowerCase()}.</p>`}`;
+}
+
+function renderIncomeSheet() {
+  const d = workDraft;
+  $("#work-sheet-title").textContent = d.id ? "Editar ingreso" : "Nuevo ingreso";
+  $("#work-sheet-body").innerHTML = `
+    <label class="setting-label" for="inc-client">Cliente</label>
+    <input id="inc-client" class="field" maxlength="${Work.MAX_CLIENT}" autocomplete="off" placeholder="Nombre del cliente" value="${esc(d.client)}">
+    <label class="setting-label mt-3" for="inc-amount">Monto en pesos</label>
+    <input id="inc-amount" class="field" inputmode="numeric" autocomplete="off" placeholder="150.000" value="${d.amount ? Work.money(d.amount).slice(2) : ""}">
+    <div class="flex gap-2 mt-3">
+      <div class="flex-1 min-w-0"><label class="setting-label" for="inc-date">Fecha</label><input id="inc-date" class="field" type="date" value="${esc(d.date)}"></div>
+      <div class="flex-1 min-w-0"><label class="setting-label" for="inc-type">Tipo</label>
+        <select id="inc-type" class="field">${Work.TYPES.map((k) => `<option value="${k}" ${d.type === k ? "selected" : ""}>${Work.TYPE_LABEL[k]}</option>`).join("")}</select></div>
+    </div>
+    <p id="wk-error" class="rem-error mt-2 text-xs" role="alert"></p>
+    <button class="btn-primary mt-3 w-full py-3" data-action="inc-save">Guardar</button>
+    ${d.id ? `<button class="btn-danger-soft mt-2 w-full py-3" data-action="inc-delete">Eliminar</button>` : ""}`;
+}
+
+function openIncomeSheet(rec) {
+  const month = state.incMonth || today().slice(0, 7);
+  workDraft = rec ? { ...rec } : { id: null, kind: "income", client: "", amount: 0, date: month === today().slice(0, 7) ? today() : month + "-01", type: "claude" };
+  renderIncomeSheet();
+  openSheet("#work-sheet");
+  if (!rec) $("#inc-client").focus();
 }
 
 function renderWorkSheet() {
@@ -2405,6 +2464,25 @@ $("#work-sheet").addEventListener("click", (e) => {
     commitRoutine();
     closeWorkSheet();
     renderWork();
+  } else if (act.dataset.action === "inc-save") {
+    const data = { client: $("#inc-client").value, amount: $("#inc-amount").value, date: $("#inc-date").value, type: $("#inc-type").value };
+    const err = (t) => { $("#wk-error").textContent = t; };
+    if (!data.client.trim()) return err("Escribe el nombre del cliente.");
+    if (!(Work.parseAmount(data.amount) > 0)) return err("Escribe el monto en pesos, sin centavos (por ejemplo 150.000).");
+    if (!Work.isDate(data.date)) return err("Elige la fecha del pago.");
+    if (d.id) Work.update(state.work, d.id, data); else Work.addIncome(state.work, data, Date.now(), uid());
+    state.incMonth = data.date.slice(0, 7) === today().slice(0, 7) ? null : data.date.slice(0, 7);
+    commitRoutine();
+    closeWorkSheet();
+    renderWork();
+  } else if (act.dataset.action === "inc-delete") {
+    askConfirm(`¿Eliminar el ingreso de «${d.client}»?`).then((yes) => {
+      if (!yes) return;
+      Work.remove(state.work, d.id);
+      commitRoutine();
+      closeWorkSheet();
+      renderWork();
+    });
   } else if (act.dataset.action === "wk-delete") {
     askConfirm(`¿Eliminar «${d.title}»?`).then((yes) => {
       if (!yes) return;
@@ -2426,12 +2504,22 @@ $("#work-status").addEventListener("click", (e) => {
 $("#work-body").addEventListener("click", (e) => {
   const filter = e.target.closest("#work-filter [data-all]");
   if (filter) { state.workAll = filter.dataset.all === "1"; renderWork(); return; }
+  const view = e.target.closest("#work-view [data-view]");
+  if (view) { state.workView = view.dataset.view; renderWork(); return; }
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const card = btn.closest("[data-id]");
   const opp = card && state.work.find((r) => r.id === card.dataset.id);
   switch (btn.dataset.action) {
     case "wk-add": openWorkSheet(null); break;
+    case "inc-add": openIncomeSheet(null); break;
+    case "inc-edit": { const rec = state.work.find((r) => r.id === btn.dataset.id); if (rec) openIncomeSheet(rec); break; }
+    case "inc-prev": case "inc-next": {
+      const next = Work.shiftMonth(state.incMonth || today().slice(0, 7), btn.dataset.action === "inc-prev" ? -1 : 1);
+      state.incMonth = next >= today().slice(0, 7) ? null : next;
+      renderWork();
+      break;
+    }
     case "wk-edit": if (opp) openWorkSheet(opp); break;
     case "wk-status":
       if (!opp) break;

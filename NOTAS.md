@@ -62,7 +62,7 @@ Hecho y probado con pruebas automáticas (ver §6): tareas, notas, resúmenes (c
 ## 5. Pendiente / ideas
 
 **Lo que el dueño pidió y falta** (su lista de 7 puntos; hechos: rutina, «Tu semana», oportunidades, sincronización sin tocar el servidor, herramienta):
-- **Ingresos** (dentro de la pestaña Trabajo): cada trabajo pagado con fecha, cliente, monto en pesos y tipo (con Claude o presencial), y total del mes. Mismo canal de sincronización que la rutina (registro nuevo, p. ej. `m:<id>`, en `work.js`).
+- ~~**Ingresos**~~ hecho en 0.20: Trabajo tiene dos vistas (Oportunidades · Ingresos). Cada ingreso `m:<id>` (`kind:"income"`, fecha, cliente, monto entero en pesos, tipo `claude`|`presencial`) viaja por el canal de la rutina junto a las oportunidades; `Work.monthTotal` da el total del mes con desglose por tipo. Pruebas: `work-test.js` e `income-e2e.js`.
 - **Lectura** (dentro de Resúmenes): libro que está leyendo y capítulo en el que va, conectado con sus resúmenes.
 - **Su lista real de rutina:** está vacía. Puede dictarla, añadirla en la app, o usar `RUTINA-GUIA.md` con su Proyecto de claude.ai y pedir «carga mi rutina» (`herramientas/rutina.mjs importar`).
 - **Comentario semanal programado:** falta que diga día y hora. Requiere su computador encendido.
