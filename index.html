@@ -49,6 +49,10 @@
         <div class="flex flex-wrap items-center gap-2">
           <div id="new-priority" class="prio-chips" role="radiogroup" aria-label="Prioridad"></div>
           <input id="task-due" type="date" class="field due-field" aria-label="Fecha límite">
+          <div id="quick-due" class="prio-chips" aria-label="Fecha rápida">
+            <button type="button" class="prio-chip" data-quick="0">Hoy</button>
+            <button type="button" class="prio-chip" data-quick="1">Mañana</button>
+          </div>
         </div>
       </form>
 
@@ -236,6 +240,12 @@
     <div class="sheet" role="dialog" aria-label="Opciones de la tarea">
       <p id="task-menu-title" class="muted truncate text-sm"></p>
       <div class="menu-list mt-3">
+        <p class="muted text-xs">Posponer</p>
+        <div id="menu-postpone" class="postpone-row" aria-label="Posponer">
+          <button data-postpone="1">Mañana</button>
+          <button data-postpone="7">En 1 semana</button>
+          <button data-postpone="">Sin fecha</button>
+        </div>
         <button id="menu-edit">Editar</button>
         <button id="menu-remind">Recordatorio</button>
         <button id="menu-delete" class="danger">Eliminar</button>
@@ -276,6 +286,11 @@
   <div id="slash-menu" class="slash-menu hidden" role="listbox"></div>
 
   <!-- CONFIRMAR -->
+  <div id="undo-toast" class="undo-toast hidden" role="status" aria-live="polite">
+    <span id="undo-msg"></span>
+    <button id="undo-btn">Deshacer</button>
+  </div>
+
   <div id="confirm" class="sheet-backdrop hidden">
     <div class="sheet" role="alertdialog" aria-labelledby="confirm-msg">
       <p id="confirm-msg" class="text-lg font-bold"></p>

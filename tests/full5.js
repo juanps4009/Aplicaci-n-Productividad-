@@ -21,7 +21,7 @@ const assert = require('assert');
   // ---- tarea vence 9 oct
   await p.fill('#task-input','Entregar informe'); await p.fill('#task-due','2026-10-09'); await p.click('#task-form button[type=submit]');
   await p.click('.task-item [data-action=menu-task]');
-  assert.strictEqual(await p.locator('#task-menu button').allInnerTexts().then(a=>a.join('|')),'Editar|Recordatorio|Eliminar'); ok('menú ⋮: Editar | Recordatorio | Eliminar');
+  assert.strictEqual(await p.locator('#task-menu .menu-list > button').allInnerTexts().then(a=>a.join('|')),'Editar|Recordatorio|Eliminar'); ok('menú ⋮: Editar | Recordatorio | Eliminar');
   await p.click('#menu-remind');
   await p.click('[data-action=rem-add]');
   // fecha y hora exactas: 7 oct 3pm

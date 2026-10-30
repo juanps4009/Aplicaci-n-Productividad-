@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.21.0-beta";
+const APP_VERSION = "0.21.1-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -420,6 +420,7 @@ $("#task-form").addEventListener("submit", (e) => {
   state.tasks.unshift(task);
   RE.clearLine(input);
   $("#task-due").value = "";
+  renderQuickDue();
   persistTasks();
   runReminders();
 });
@@ -534,10 +535,69 @@ $("#menu-edit").addEventListener("click", () => {
   renderTasks();
 });
 $("#menu-delete").addEventListener("click", () => {
+  const before = state.tasks;
   state.tasks = state.tasks.filter((t) => t.id !== state.menuTask);
   closeSheet("#task-menu");
   persistTasks();
+  showUndo("Tarea eliminada", () => restoreTasks(before));
 });
+$("#menu-postpone").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-postpone]");
+  const task = btn && state.tasks.find((t) => t.id === state.menuTask);
+  if (!task) return;
+  closeSheet("#task-menu");
+  postponeTask(task, btn.dataset.postpone === "" ? null : +btn.dataset.postpone);
+});
+
+/* Fecha a N días de hoy (N = null: sin fecha) */
+function daysFromToday(n) {
+  if (n == null) return "";
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return dateStr(d);
+}
+function postponeTask(task, days) {
+  const prev = task.due || "";
+  task.due = daysFromToday(days);
+  persistTasks();
+  runReminders();
+  showUndo(task.due ? `Pasada a ${dueLabel(task.due).toLowerCase()}` : "Sin fecha", () => {
+    task.due = prev;
+    persistTasks();
+    runReminders();
+  });
+}
+/* Vuelve a poner las tareas quitadas, en su sitio (conserva lo añadido mientras tanto) */
+function restoreTasks(before) {
+  const ids = new Set(before.map((t) => t.id));
+  const cur = new Map(state.tasks.map((t) => [t.id, t]));
+  state.tasks = [...state.tasks.filter((t) => !ids.has(t.id)), ...before.map((t) => cur.get(t.id) || t)];
+  persistTasks();
+}
+
+/* Aviso abajo con «Deshacer» durante unos segundos */
+let undoTimer = null;
+function showUndo(message, onUndo, ms = 5000) {
+  const box = $("#undo-toast");
+  $("#undo-msg").textContent = message;
+  box.classList.remove("hidden");
+  clearTimeout(undoTimer);
+  const hide = () => { box.classList.add("hidden"); $("#undo-btn").onclick = null; };
+  $("#undo-btn").onclick = () => { clearTimeout(undoTimer); hide(); onUndo(); };
+  undoTimer = setTimeout(hide, ms);
+}
+
+$("#quick-due").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-quick]");
+  if (!chip) return;
+  const due = daysFromToday(+chip.dataset.quick);
+  $("#task-due").value = $("#task-due").value === due ? "" : due;
+  renderQuickDue();
+});
+$("#task-due").addEventListener("input", () => renderQuickDue());
+function renderQuickDue() {
+  $$("#quick-due [data-quick]").forEach((b) => b.classList.toggle("active", $("#task-due").value === daysFromToday(+b.dataset.quick)));
+}
 
 
 $("#task-groups").addEventListener("click", (e) => {
@@ -565,8 +625,10 @@ $("#task-groups").addEventListener("click", (e) => {
       const n = state.tasks.filter((t) => t.done).length;
       askConfirm(`¿Borrar ${n} tarea${n === 1 ? "" : "s"} completada${n === 1 ? "" : "s"}?`, "Borrar").then((ok) => {
         if (!ok) return;
+        const before = state.tasks;
         state.tasks = state.tasks.filter((t) => !t.done);
         persistTasks();
+        showUndo(`${n} tarea${n === 1 ? "" : "s"} borrada${n === 1 ? "" : "s"}`, () => restoreTasks(before));
       });
       break;
     }

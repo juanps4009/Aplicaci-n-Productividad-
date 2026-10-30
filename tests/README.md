@@ -27,6 +27,7 @@ npm run e2e
 | `rt-test.js` | `richtext.js`: texto con formato (tramos de negrita, colores, tamaño; limpieza de datos ajenos; HTML seguro) |
 | `routine-test.js` | `routine.js`: rutina diaria/semanal/mensual (semanas ISO, marcar, resumen semanal, racha, limpieza de datos ajenos) |
 | `work-test.js` | `work.js`: oportunidades (validación, enlaces solo http(s), orden, días al cierre, no duplicar por enlace) e ingresos (monto en pesos, total del mes) |
+| `pendientes-e2e.js` | Pendientes: botones Hoy/Mañana, posponer desde ⋮ y Deshacer al posponer, eliminar o borrar completadas |
 | `work-e2e.js` | Pestaña Trabajo en el navegador: añadir, estado con un toque, filtro, cierre, enlace seguro, datos maliciosos |
 | `income-e2e.js` | Trabajo → Ingresos en el navegador: añadir, total del mes con desglose por tipo, cambiar de mes, editar, borrar, datos ajenos |
 | `rutina-cli-test.mjs` | `herramientas/rutina.mjs`: el programa de escritorio contra el servidor real (D1 simulada): rutina, comentario, importar, `hoy`, tareas, oportunidades y código por `PENDIENTES_CODIGO` |
