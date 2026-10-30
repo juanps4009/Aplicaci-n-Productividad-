@@ -130,6 +130,7 @@ body {
 .bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
 .bar > span { display: block; height: 100%; border-radius: 99px; background: var(--fill, var(--accent)); transition: width 0.35s cubic-bezier(.2,.8,.2,1); }
 
+@property --p { syntax: "<number>"; inherits: false; initial-value: 0; }
 /* Anillo de progreso (porcentaje en --p, color en --ring) */
 .ring {
   --size: 96px; --thick: 12px; position: relative; flex-shrink: 0; width: var(--size); height: var(--size); border-radius: 50%;

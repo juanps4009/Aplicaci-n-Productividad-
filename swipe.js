@@ -6,7 +6,7 @@
 (function () {
   const ROWS = "#task-groups li.task-item[data-id]:not(.editing), .wk-card[data-id]";
   const NEXT = { review: "applied", applied: "replied", replied: "replied", discarded: "review" };
-  const has = (name) => { try { return typeof eval(name) !== "undefined"; } catch { return false; } }; // eslint-disable-line no-eval
+  const hasState = () => typeof state !== "undefined"; // «state» lo declara app.js
   const notify = (msg, undo) => (window.QuickCapture ? QuickCapture.toast(msg, "Deshacer", undo) : null);
   let drag = null, suppress = false;
 
@@ -72,7 +72,7 @@
   function commit(row, dir) {
     const id = row.dataset.id;
     if (row.matches(".wk-card")) {
-      const o = has("state") && state.work.find((x) => x.id === id);
+      const o = hasState() && state.work.find((x) => x.id === id);
       if (!o) return;
       const before = o.status, to = dir > 0 ? NEXT[o.status] : "discarded";
       if (to === before) return;
@@ -80,7 +80,7 @@
       notify(dir > 0 ? `Estado: ${Work.STATUS_LABEL[to].toLowerCase()}` : "Oferta descartada", () => { Work.setStatus(state.work, id, before); commitRoutine(); renderWork(); });
       return;
     }
-    const t = has("state") && state.tasks.find((x) => x.id === id);
+    const t = hasState() && state.tasks.find((x) => x.id === id);
     if (!t) return;
     const before = { done: t.done, due: t.due };
     const undo = () => { const x = state.tasks.find((y) => y.id === id); if (x) { Object.assign(x, before); persistTasks(); } };
@@ -88,8 +88,8 @@
       t.done = !t.done; persistTasks();
       notify(t.done ? "Marcada como hecha" : "Vuelve a pendientes", undo);
     } else {
-      if (typeof postponeTask === "function") postponeTask(t, 1);
-      else { const d = new Date(); d.setDate(d.getDate() + 1); t.due = QuickParse.dateKey(d); persistTasks(); }
+      if (typeof postponeTask === "function") { postponeTask(t, 1); return; } // ya muestra su propio «Deshacer»
+      const d = new Date(); d.setDate(d.getDate() + 1); t.due = QuickParse.dateKey(d); persistTasks();
       notify("Pasada a mañana", undo);
     }
   }

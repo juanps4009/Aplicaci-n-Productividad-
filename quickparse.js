@@ -55,7 +55,7 @@
       }
     };
     const setDate = (d, m) => {
-      const near = closeWord >= 0 && m.index - closeWord <= 12 && m.index > closeWord;
+      const near = closeWord >= 0 && m.index - closeWord <= 30 && m.index > closeWord;
       if (near) out.closes = dateKey(d); else out.due = dateKey(d);
     };
     const setTime = (h, mi, ap, extra, loose) => {
@@ -83,8 +83,9 @@
 
     // Ingresos: dinero y palabras de cobro
     take(`\\$\\s?\\d[\\d.,]*(\\s?(k|mil))?${E}|${B}\\d[\\d.,]*\\s?(k|mil|pesos)${E}`, "money", (m) => {
-      let n = Number(m[0].replace(/[^\d]/g, ""));
-      if (/k|mil/.test(m[0])) n *= 1000;
+      const dec = m[0].match(/(\d+)[.,](\d{1,2})\s?(k|mil)/); // «1,5k» son 1.500
+      let n = dec ? Number(`${dec[1]}.${dec[2]}`) * 1000 : Number(m[0].replace(/[^\d]/g, "")) * (/k|mil/.test(m[0]) ? 1000 : 1);
+      n = Math.round(n);
       if (!n) return false;
       out.amount = n;
     });

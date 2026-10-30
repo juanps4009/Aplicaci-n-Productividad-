@@ -1,10 +1,10 @@
 /* Service worker: funciona sin conexión.
    Estrategia "red primero": si hay internet siempre carga la versión más nueva y la guarda;
    si no hay, usa la copia guardada. Sube CACHE si cambias la lista de archivos. */
-const CACHE = "productividad-v18";
+const CACHE = "productividad-v19";
 importScripts("sync.js"); // trae Sync (descifrado de los avisos)
 const FILES = ["./", "index.html", "styles.css", "tablero.css", "fonts/manrope.woff2", "app.js", "home.js", "config.js", "reminders.js", "sync.js", "richtext.js", "richedit.js", "routine.js", "work.js", "reading.js", "quickparse.js", "capture.js", "swipe.js", "capture.css", "vendor/qrcode.js", "manifest.webmanifest",
-  "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
+  "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -25,7 +25,7 @@ self.addEventListener("fetch", (e) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html"))));
+      .catch(() => caches.match(req).then((hit) => hit || (req.mode === "navigate" ? caches.match("index.html") : Response.error()))));
 });
 
 /* Al tocar una notificación: abrir (o enfocar) la app */

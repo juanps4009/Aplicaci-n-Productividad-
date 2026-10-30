@@ -31,7 +31,7 @@ function dayTasks(now) {
 function focusTasks(now) {
   const rank = (t) => (t.due && t.due < now ? 0 : t.due === now ? 1 : t.priority === "high" ? 2 : 9);
   const pick = sortTasks(state.tasks.filter((t) => (!t.done || homeKeep.has(t.id)) && rank(t) < 9))
-    .sort((a, b) => rank(a) - rank(b) || PRIO_RANK[a.priority] - PRIO_RANK[b.priority]);
+    .sort((a, b) => rank(a) - rank(b) || (PRIO_RANK[a.priority] ?? 9) - (PRIO_RANK[b.priority] ?? 9));
   return pick.slice(0, 3);
 }
 
@@ -57,7 +57,7 @@ function homeTaskHTML(t, now) {
   const late = t.due && t.due < now && !t.done;
   const meta = [late ? `Vencida · ${dueLabel(t.due)}` : t.due ? dueLabel(t.due) : "", PRIORITIES.find((p) => p.key === t.priority)?.label].filter(Boolean).join(" · ");
   return `
-    <button class="home-task ${t.done ? "done" : ""}" data-action="home-toggle" data-id="${esc(t.id)}" data-prio="${t.priority}" role="checkbox" aria-checked="${!!t.done}">
+    <button class="home-task ${t.done ? "done" : ""}" data-action="home-toggle" data-id="${esc(t.id)}" data-prio="${esc(t.priority || "")}" role="checkbox" aria-checked="${!!t.done}">
       <span class="chk">${homeSvg("check", 3)}</span>
       <span class="t"><b>${RT.toHTML(t.text, t.marks)}</b><small class="${late ? "late" : ""}">${esc(meta)}</small></span>
     </button>`;
