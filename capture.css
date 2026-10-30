@@ -47,6 +47,7 @@ body:has(.sheet-backdrop:not(.hidden)) .qc-fab, body:has(.page:not(.hidden)) .qc
 .qc-rut { --qc-bg: color-mix(in srgb, var(--low) 24%, transparent); }
 .qc-opp, .qc-url, .qc-kind, .qc-read, .qc-money { --qc-bg: color-mix(in srgb, var(--text) 10%, transparent); }
 
+#qc-body { display: flex; flex-direction: column; gap: 0.6rem; }
 .qc-label { margin: 0; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); }
 .qc-preview { display: flex; flex-direction: column; gap: 0.55rem; padding: 0.85rem 1rem; border: 1px dashed var(--border); border-radius: 1rem; }
 .qc-title { margin: 0; font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; }
