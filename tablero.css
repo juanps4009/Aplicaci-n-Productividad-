@@ -316,7 +316,8 @@ body {
   .nav-btn.active { background: color-mix(in srgb, var(--accent) 13%, transparent); }
   .nav-btn:not(.active):hover { background: var(--surface-2); }
   .app-header { padding-inline: 2rem 1.5rem; }
-  .app-main { max-width: 1120px; padding: 1.25rem 2rem 4rem; }
+  .home-date { margin-top: 0; }
+  .app-main { max-width: 1120px; margin: 0; padding: 1.25rem 2rem 4rem; }
   .app-main > .tab-panel:not(#tab-home) { max-width: 720px; }
   .home { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
   .home-date { grid-column: 1 / -1; }
