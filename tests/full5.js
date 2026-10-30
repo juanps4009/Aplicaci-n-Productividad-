@@ -12,11 +12,11 @@ const assert = require('assert');
 
   // ---- tema (interruptor)
   const bg = ()=>p.evaluate(()=>getComputedStyle(document.body).backgroundColor);
-  assert.strictEqual(await bg(),'rgb(248, 250, 252)'); ok('primera vez = tema del sistema (claro)');
+  assert.strictEqual(await bg(),'rgb(243, 244, 246)'); ok('primera vez = tema del sistema (claro)');
   await p.click('#open-settings'); await p.click('#theme-switch');
-  assert.strictEqual(await bg(),'rgb(15, 23, 42)'); ok('interruptor → oscuro');
-  await p.click('#close-settings'); await p.reload(); assert.strictEqual(await bg(),'rgb(15, 23, 42)'); ok('tema persiste');
-  await p.click('#open-settings'); await p.click('#theme-switch'); await p.click('#close-settings'); assert.strictEqual(await bg(),'rgb(248, 250, 252)');
+  assert.strictEqual(await bg(),'rgb(13, 15, 20)'); ok('interruptor → oscuro');
+  await p.click('#close-settings'); await p.reload(); assert.strictEqual(await bg(),'rgb(13, 15, 20)'); ok('tema persiste');
+  await p.click('#open-settings'); await p.click('#theme-switch'); await p.click('#close-settings'); assert.strictEqual(await bg(),'rgb(243, 244, 246)');
 
   // ---- tarea vence 9 oct
   await p.fill('#task-input','Entregar informe'); await p.fill('#task-due','2026-10-09'); await p.click('#task-form button[type=submit]');
@@ -45,7 +45,7 @@ const assert = require('assert');
   assert((await p.locator('.rem-error').innerText()).includes('final')); ok('valida horario de "cada X horas"'); await p.click('[data-action=rem-cancel]');
   await p.screenshot({path:'' + require('os').tmpdir() + '/v8-sheet.png'});
   await p.click('#rem-close');
-  assert((await p.locator('.due-label').innerText()).includes('🔔')); ok('campana con próximo aviso en la tarea');
+  assert((await p.locator('.due-label svg[data-i=bell]').count()) > 0); ok('campana con próximo aviso en la tarea');
   console.log(await p.locator('.due-label').innerText());
 
   // ---- avance del tiempo: 5 oct 18:00 → suena el diario y el "cada 4h"

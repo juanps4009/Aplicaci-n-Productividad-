@@ -18,7 +18,7 @@ const assert = require('assert');
   };
 
   // ---- cuatro pestañas; Trabajo empieza vacía
-  assert.deepStrictEqual(await p.locator('.nav-btn span').allInnerTexts(), ['Pendientes', 'Rutina', 'Trabajo', 'Resúmenes']);
+  assert.deepStrictEqual(await p.locator('.nav-btn span').allInnerTexts(), ['Inicio', 'Pendientes', 'Rutina', 'Trabajo', 'Resúmenes']);
   await p.click('.nav-btn[data-tab=work]'); assert.strictEqual(await p.locator('#page-title').innerText(), 'Trabajo'); assert((await p.locator('#work-body').innerText()).includes('Aún no hay oportunidades'));
   assert(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); ok('pestaña Trabajo (cuatro pestañas caben en el celular)');
 

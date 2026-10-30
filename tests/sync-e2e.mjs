@@ -92,7 +92,7 @@ assert.strictEqual(await B.locator('.task-item:has-text("Tarea B0")').count(), 0
 // ---- recordatorios y dispositivos
 await B.click('.task-item:has-text("Tarea A1") [data-action=menu-task]'); await B.click('#menu-remind'); await B.click('[data-action=rem-add]'); await B.click('[data-action=rem-kind][data-kind=daily]'); await B.fill('#rem-time', '18:00'); await B.click('[data-action=rem-save]'); await B.click('#rem-close');
 await B.waitForTimeout(2600); await syncA();
-assert((await A.locator('.task-item:has-text("Tarea A1") .due-label').innerText()).includes('🔔')); assert.strictEqual(await A.locator('.att-row').count(), 0); ok('el recordatorio llega a A sin avisos atrasados');
+assert((await A.locator('.task-item:has-text("Tarea A1") .due-label svg[data-i=bell]').count()) > 0); assert.strictEqual(await A.locator('.att-row').count(), 0); ok('el recordatorio llega a A sin avisos atrasados');
 const remA = await A.evaluate(() => JSON.parse(localStorage.getItem('prod.tasks')).flatMap(t => t.reminders)); assert(remA.every(r => r.lastFired === undefined && r.acked === undefined)); ok('el estado de "ya sonó" no viaja en los datos sincronizados');
 await openSettings(A); await A.click('#notify-switch'); assert.strictEqual(await A.locator('#notify-switch').getAttribute('aria-checked'), 'false'); await A.click('#notify-switch'); await A.click('#close-settings'); ok('interruptor de avisos por dispositivo');
 

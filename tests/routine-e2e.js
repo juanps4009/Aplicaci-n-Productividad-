@@ -18,7 +18,7 @@ const assert = require('assert');
   const row = (text) => p.locator('.rt-item', { hasText: text });
 
   // ---- pestaña nueva, vacía al principio
-  assert.strictEqual(await p.locator('.nav-btn').count(), 4); await p.click('.nav-btn[data-tab=routine]');
+  assert.strictEqual(await p.locator('.nav-btn').count(), 5); await p.click('.nav-btn[data-tab=routine]');
   assert.strictEqual(await p.locator('#page-title').innerText(), 'Rutina'); assert((await p.locator('#routine-body').innerText()).includes('Tu rutina está vacía')); ok('pestaña Rutina con estado vacío');
   await p.click('[data-action=rt-add]'); await p.click('[data-action=rt-save]'); assert((await p.locator('#rt-error').innerText()).includes('Escribe')); await p.click('#routine-sheet-close');
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.20.0-beta";
+const APP_VERSION = "0.21.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -162,7 +162,7 @@ function initTheme() { // la primera vez toma el tema del sistema y queda fijo
 function applyTheme() {
   document.documentElement.dataset.theme = state.settings.theme;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = state.settings.theme === "dark" ? "#1e293b" : "#ffffff";
+  if (meta) meta.content = state.settings.theme === "dark" ? "#0d0f14" : "#f3f4f6";
 }
 
 /* ---------- Diálogo de confirmación propio (confirm() no funciona en todos los visores) ---------- */
@@ -180,11 +180,14 @@ function askConfirm(message, okLabel = "Eliminar") {
 }
 
 /* ---------- Navegación ---------- */
-const TITLES = { tasks: "Pendientes", routine: "Rutina", work: "Trabajo", books: "Resúmenes" };
+const TITLES = { home: "Inicio", tasks: "Pendientes", routine: "Rutina", work: "Trabajo", books: "Resúmenes" };
 
 function showTab(tab) {
+  if (!TITLES[tab]) tab = "tasks";
   state.tab = tab;
   save(KEYS.tab, tab);
+  document.body.dataset.tab = tab;
+  $("#tab-home").classList.toggle("hidden", tab !== "home");
   $("#tab-tasks").classList.toggle("hidden", tab !== "tasks");
   $("#tab-routine").classList.toggle("hidden", tab !== "routine");
   $("#tab-books").classList.toggle("hidden", tab !== "books");
@@ -193,6 +196,7 @@ function showTab(tab) {
   if (tab === "work") renderWork();
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   $("#page-title").textContent = TITLES[tab];
+  if (typeof renderHome === "function") { if (tab === "home") renderHome(); else homeKeep.clear(); }
   $("#open-filter").classList.toggle("hidden", tab !== "tasks");
   window.scrollTo(0, 0);
 }
@@ -231,6 +235,12 @@ function prioChipsHTML(selected, name) {
 
 const NOTEBOOK_ICON = `<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z"/><path d="M6 3v18M10 8h5M10 12h5M10 16h3"/></svg>`;
 
+const metaSvg = (name, d) => `<svg class="meta-i" data-i="${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+const META_ICON = {
+  cal: metaSvg("cal", "M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM16 3v4M8 3v4M3 10h18"),
+  bell: metaSvg("bell", "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"),
+};
+
 function taskHTML(t) {
   if (state.editingTask === t.id) {
     return `
@@ -249,7 +259,7 @@ function taskHTML(t) {
   const overdue = t.due && !t.done && t.due < today();
   const hasNotes = (t.doc || []).some((b) => b.text.trim());
   const next = t.done ? null : Reminders.nextFires(t, Date.now(), 60, 1, deviceId())[0];
-  const meta = [t.due ? `📅 ${dueLabel(t.due)}` : "", next ? `🔔 ${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
+  const meta = [t.due ? `${META_ICON.cal}${dueLabel(t.due)}` : "", next ? `${META_ICON.bell}${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
@@ -319,6 +329,7 @@ function renderTasks() {
   $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
   renderAttention();
   renderWidget();
+  if (typeof renderHome === "function") { renderTaskProgress(); renderHome(); }
 }
 
 /* Modo widget de escritorio (#widget): ventana pequeña con solo los pendientes, de solo lectura */
@@ -1840,9 +1851,18 @@ function renderBooks() {
   renderBookPage();
 }
 
+/* Portada de color fija para cada libro (sale de su id) */
+const COVERS = [["#1f3a5f", "#f7e7c6"], ["#e8d5b5", "#3b2a14"], ["#7a2e3a", "#fbe9e7"], ["#2f5d50", "#e9f5ec"], ["#4b3f72", "#efeafb"], ["#c8553d", "#fff4ec"], ["#22313f", "#d9f0ff"], ["#d9c8f0", "#2e1d4f"]];
+function bookCover(b) {
+  let h = 0;
+  for (const ch of String(b.id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const [bg, fg] = COVERS[h % COVERS.length];
+  return `--cover:${bg};--cover-ink:${fg}`;
+}
+
 function renderBookList() {
   $("#book-list").innerHTML = state.books.map((b) => `
-    <article class="book-card" data-book="${b.id}">
+    <article class="book-card" data-book="${b.id}" style="${bookCover(b)}">
       <button class="book-open" data-action="open">
         <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
         <span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>
@@ -2118,16 +2138,19 @@ function routineTodayHTML() {
       <span class="rt-week-info"><small>Tu semana</small><b id="routine-week-pct">${wk.pct === null ? "—" : `${wk.pct} %`}</b></span>
       <span class="rt-dots">${wk.days.map((d, i) => `<span class="rt-dot d-${d.state}" title="${dayTitle(d, i)}"><i></i><small>${Routine.DAY_SHORT[i]}</small></span>`).join("")}</span>
     </button>`;
+  const streak = edit || typeof routineStreak !== "function" ? 0 : routineStreak(date);
   return `
-    ${weekCard}
-    <div class="rt-top">
-      <div>
+    <div class="card rt-hero">
+      ${edit ? "" : `<div class="ring" style="--p:${pct}" aria-hidden="true"><b class="num">${pct}%</b></div>`}
+      <div class="rt-hero-text">
         <p class="font-bold">${esc(capital(new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
         <p class="muted text-sm" id="routine-count">${edit ? "Editando tu rutina" : t.total ? `${t.done} de ${t.total} hecho${t.total === 1 ? "" : "s"}` : "Hoy no toca nada"}</p>
+        ${streak >= 2 ? `<span class="streak-pill">${homeSvg("flame", 2.2)}${streak} días seguidos</span>` : ""}
+        ${edit ? "" : `<div class="rt-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance de hoy"><span style="width:${pct}%"></span></div>`}
       </div>
-      <button class="btn-secondary px-4" data-action="rt-edit">${edit ? "Listo" : "Editar"}</button>
+      <button class="btn-secondary" data-action="rt-edit">${edit ? "Listo" : "Editar"}</button>
     </div>
-    ${edit ? "" : `<div class="rt-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pct}%"></span></div>`}
+    ${weekCard}
     ${groups}
     ${edit ? `<button class="btn-primary mt-4 w-full py-3" data-action="rt-add">+ Añadir pendiente</button>` : ""}`;
 }
@@ -2363,6 +2386,11 @@ function renderWork() {
     <button class="btn-primary w-full py-3" data-action="wk-add">+ Añadir oportunidad</button>
     ${c.total ? `
       <p class="muted mt-3 text-sm" id="work-count">${c.review} por revisar · ${c.applied} aplicada${c.applied === 1 ? "" : "s"} · ${c.replied} con respuesta</p>
+      <div class="wk-funnel" aria-hidden="true">
+        <div class="f-review"><span class="wk-funnel-n">${c.review}</span><small>Por revisar</small></div>
+        <div class="f-applied"><span class="wk-funnel-n">${c.applied}</span><small>Apliqué</small></div>
+        <div class="f-replied"><span class="wk-funnel-n">${c.replied}</span><small>Me respondieron</small></div>
+      </div>
       <div class="seg mt-2" id="work-filter" role="tablist" aria-label="Qué oportunidades mostrar">
         <button data-all="0" class="${state.workAll ? "" : "active"}" role="tab">Activas (${c.total - c.discarded})</button>
         <button data-all="1" class="${state.workAll ? "active" : ""}" role="tab">Todas (${c.total})</button>
@@ -2543,6 +2571,10 @@ if (!["all", "pending", "done"].includes(state.filter)) state.filter = "all";
 state.books = state.books.filter((b) => !b.isNew);
 initTheme();
 applyTheme();
+if (!state.settings.homeIntro) {
+  state.settings.homeIntro = 1;
+  if (localStorage.getItem(KEYS.tab) && (state.tasks.length || state.routine.length || state.work.length)) state.tab = "home";
+}
 showTab(state.tab);
 renderTasks();
 renderBooks();
