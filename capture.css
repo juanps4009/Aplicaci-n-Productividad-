@@ -97,3 +97,7 @@ body:has(.sheet-backdrop:not(.hidden)) .qc-fab, body:has(.page:not(.hidden)) .qc
 .qc-under span { transition: transform 160ms cubic-bezier(.23,1,.32,1); }
 .qc-under.armed span { transform: scale(1.12); }
 @media (prefers-reduced-motion: reduce) { .qc-sheet, .qc-fab, .qc-toast, .qc-under span { animation: none; transition: none; } }
+
+/* El Inicio del tablero trae su propio «+»: queda solo «Anotar», que hace lo mismo y más */
+.home-fab { display: none !important; }
+body.widget-mode .qc-fab { display: none !important; }

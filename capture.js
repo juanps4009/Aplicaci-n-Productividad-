@@ -208,6 +208,7 @@
   fab.addEventListener("click", () => open());
 
   document.addEventListener("keydown", (e) => {
+    if (document.body.classList.contains("widget-mode")) return; // el widget de escritorio es de solo lectura
     const t = document.activeElement;
     const typing = t && (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || t.isContentEditable);
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") { e.preventDefault(); isOpen() ? close() : open(); return; }
