@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.18.0-beta";
+const APP_VERSION = "0.19.2-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -15,8 +15,19 @@ function load(key, fallback) {
     return raw ? JSON.parse(raw) : fallback;
   } catch { return fallback; }
 }
+let storageWarned = false;
 function save(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* almacenamiento lleno o bloqueado */ }
+  try { localStorage.setItem(key, JSON.stringify(value)); storageWarned = false; }
+  catch { /* almacenamiento lleno o bloqueado: se avisa una vez, sin detener la app */
+    if (storageWarned || !document.body) return;
+    storageWarned = true;
+    const n = document.createElement("div");
+    n.setAttribute("role", "alert");
+    n.style.cssText = "position:fixed;left:1rem;right:1rem;top:calc(env(safe-area-inset-top) + 0.75rem);z-index:200;padding:0.75rem 1rem;border-radius:0.85rem;background:var(--danger);color:var(--on-danger);font-weight:600;cursor:pointer";
+    n.textContent = "No se pudo guardar en este dispositivo: el espacio está lleno o bloqueado. Sincroniza o libera espacio para no perder cambios. (Toca para cerrar)";
+    n.onclick = () => n.remove();
+    document.body.append(n);
+  }
 }
 
 /* El servidor solo conoce «tasks» y «books»: la rutina se sube como «books» con este prefijo en el id
@@ -305,6 +316,63 @@ function renderTasks() {
     ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${state.tasks.length}` : "";
   $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
   renderAttention();
+  renderWidget();
+}
+
+/* Modo widget de escritorio (#widget): ventana pequeña con solo los pendientes, de solo lectura */
+const WIDGET_MODE = location.hash.startsWith("#widget");
+function renderWidget() {
+  if (!WIDGET_MODE) return;
+  const list = state.tasks.filter((t) => !t.done);
+  const now = today();
+  const rows = sortTasks(list).map((t) => {
+    const overdue = t.due && t.due < now;
+    return `<li class="widget-item" role="button" data-id="${esc(t.id)}" data-prio="${esc(t.priority)}" tabindex="0">
+      <span class="dot"></span>
+      <div class="task-main"><div class="task-text">${RT.toHTML(t.text, t.marks)}</div>
+      ${t.due ? `<div class="due-label ${overdue ? "overdue" : ""}">${dueLabel(t.due)}</div>` : ""}</div></li>`;
+  }).join("");
+  const overdueCount = list.filter((t) => t.due && t.due < now).length;
+  $("#widget-view").innerHTML = `
+    <div class="widget-head"><strong>Pendientes · <span class="${overdueCount ? "overdue" : ""}">${list.length}</span></strong>
+      <button class="icon-btn" data-widget="open" aria-label="Abrir la app completa" title="Abrir la app completa">↗</button></div>
+    ${rows ? `<ul class="widget-list">${rows}</ul>` : `<p class="muted widget-empty">Sin pendientes 🎉<br><small>¿No ves tus tareas? Toca ↗ y conecta la sincronización.</small></p>`}`;
+}
+if (WIDGET_MODE) {
+  document.body.classList.add("widget-mode");
+  $("#widget-view").classList.remove("hidden");
+  // dentro de la ventana sin marco del escritorio (WebView2): el encabezado sirve para arrastrarla
+  const host = window.chrome && window.chrome.webview;
+  if (host) {
+    document.body.classList.add("widget-frameless");
+    let dragging = false;
+    $("#widget-view").addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || !e.target.closest(".widget-head") || e.target.closest("button")) return;
+      dragging = true;
+      host.postMessage(`drag:start:${e.screenX},${e.screenY}`);
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      if (e.buttons === 0) dragging = false; // soltó el botón fuera de la ventana
+      else host.postMessage(`drag:move:${e.screenX},${e.screenY}`);
+    });
+    window.addEventListener("mouseup", () => { dragging = false; });
+  }
+  const openFull = (hash) => window.open(location.pathname + location.search + hash, "_blank");
+  $("#widget-view").addEventListener("click", (e) => {
+    if (e.target.closest("[data-widget=open]")) return openFull("");
+    const li = e.target.closest(".widget-item");
+    if (li) openFull("#task=" + encodeURIComponent(li.dataset.id));
+  });
+  $("#widget-view").addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("widget-item")) e.target.click();
+  });
+  // la app principal (otra ventana) guardó cambios: traerlos al instante
+  window.addEventListener("storage", (e) => {
+    if (e.key !== KEYS.tasks) return;
+    state.tasks = loadList(KEYS.tasks, migrateTask);
+    renderTasks();
+  });
 }
 
 /* Guardar = estampar cambios (para sincronizar) + persistir + programar subidas */
@@ -359,8 +427,81 @@ $("#new-priority").addEventListener("click", (e) => {
 });
 
 /* Hojas emergentes: se cierran tocando el fondo */
-function openSheet(id) { $(id).classList.remove("hidden"); }
-function closeSheet(id) { $(id).classList.add("hidden"); }
+function openSheet(id) { $(id).classList.remove("hidden"); registrarCapa(id); }
+function closeSheet(id) { $(id).classList.add("hidden"); soltarCapa(id); }
+
+/* Capas superpuestas (hojas y páginas): cada una añade una entrada al historial para que
+   Atrás de Android y Escape la cierren en vez de salir de la app, y al cerrar devuelven el foco. */
+const capas = [];              // ids abiertos con entrada en el historial, la última es la de arriba
+const focoCapa = new Map();    // id -> elemento que tenía el foco al abrir
+let ignorarPop = 0;            // popstate causados por nuestro propio history.back() al cerrar por la interfaz
+let enPop = false;             // estamos cerrando desde el manejador de popstate
+let capasPendientes = [];      // capas abiertas mientras un history.back() propio aún no terminó
+function registrarCapa(id) {
+  if (capas.includes(id)) return;
+  capas.push(id);
+  focoCapa.set(id, document.activeElement);
+  const el = $(id);
+  (el.getAttribute("role") === "dialog" ? el : el.querySelector('[role="dialog"]'))?.setAttribute("aria-modal", "true");
+  if (ignorarPop) capasPendientes.push(id); // el historial se está moviendo: se añade al terminar
+  else history.pushState({ capa: id }, "");
+}
+function soltarCapa(id) {
+  const i = capas.indexOf(id);
+  if (i < 0) return;
+  capas.splice(i, 1);
+  capasPendientes = capasPendientes.filter((x) => x !== id);
+  const foco = focoCapa.get(id);
+  focoCapa.delete(id);
+  if (foco && foco.isConnected && typeof foco.focus === "function") foco.focus({ preventScroll: true });
+  if (!enPop && history.state && history.state.capa === id) { ignorarPop++; history.back(); }
+}
+/* La MISMA función de cierre que usa la interfaz para cada capa (guarda borradores, etc.) */
+function cerrarLibroActual() {
+  const id = state.openBook;
+  if (id && state.editing.has(id)) { // «Listo»: guardar y terminar la edición
+    const book = state.books.find((b) => b.id === id);
+    saveBookDraft(id);
+    endEdit(id);
+    if (book && book.isNew) { state.books = state.books.filter((b) => b.id !== id); state.openBook = null; }
+    renderBooks();
+  } else closeBook();
+}
+function cerrarCapa(id) {
+  if (id === "#notes-page") closeNotes();
+  else if (id === "#book-page") cerrarLibroActual();
+  else if (id === "#routine-sheet") closeRoutineSheet();
+  else if (id === "#work-sheet") closeWorkSheet();
+  else if (id === "#work-status") { closeSheet(id); workStatusId = null; }
+  else closeSheet(id);
+  soltarCapa(id); // por si la función de cierre no lo hizo
+}
+function cerrarCapaSuperior() {
+  const id = capas[capas.length - 1];
+  if (!id) return false;
+  cerrarCapa(id);
+  return true;
+}
+window.addEventListener("popstate", () => {
+  if (ignorarPop) {
+    if (--ignorarPop === 0) { // terminó nuestro history.back(): añadir las capas que se abrieron mientras tanto
+      const pend = capasPendientes; capasPendientes = [];
+      pend.forEach((id) => { if (capas.includes(id)) history.pushState({ capa: id }, ""); });
+    }
+    return;
+  }
+  enPop = true; // Atrás ya sacó la entrada del historial: cerrar sin volver a llamar a history.back()
+  try { cerrarCapaSuperior(); } finally { enPop = false; }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !capas.length) return;
+  const menu = $("#slash-menu");
+  if (menu && !menu.classList.contains("hidden")) return; // el menú «/» se cierra solo con Escape
+  const aviso = $("#confirm");
+  if (aviso && !aviso.classList.contains("hidden")) return; // un aviso de confirmación va por encima
+  e.preventDefault();
+  cerrarCapaSuperior();
+});
 ["#filter-sheet", "#task-menu"].forEach((id) =>
   $(id).addEventListener("click", (e) => { if (e.target === $(id)) closeSheet(id); }));
 
@@ -501,15 +642,15 @@ function renderSettings() {
   renderSyncIcon();
 }
 
-$("#open-settings").addEventListener("click", () => { renderSettings(); $("#settings").classList.remove("hidden"); });
+$("#open-settings").addEventListener("click", () => { renderSettings(); openSheet("#settings"); });
 $("#open-sync").addEventListener("click", () => { // atajo desde la cabecera: abre Ajustes en la tarjeta de sincronización
   renderSettings();
   $("#sync-card").open = true;
-  $("#settings").classList.remove("hidden");
+  openSheet("#settings");
   $("#sync-card").scrollIntoView({ block: "start" });
 });
-$("#close-settings").addEventListener("click", () => $("#settings").classList.add("hidden"));
-$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") e.currentTarget.classList.add("hidden"); });
+$("#close-settings").addEventListener("click", () => closeSheet("#settings"));
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSheet("#settings"); });
 
 $$(".seg[data-setting]").forEach((seg) => seg.addEventListener("click", (e) => {
   const b = e.target.closest("button[data-value]");
@@ -1229,7 +1370,7 @@ async function syncNow() {
       const rt = Sync.mergeIncoming("tasks", state.tasks, data.records, tracker, state.tombs, busy);
       const rb = Sync.mergeIncoming("books", state.books, data.records, tracker, state.tombs, busy);
       const all = routineAll();
-      if (Sync.mergeIncoming("routine", all, data.records, tracker, state.tombs, new Set()).changed) { setRoutine(all); routineChanged = true; }
+      if (Sync.mergeIncoming("routine", all, data.records, tracker, state.tombs, new Set([routineDraft?.id, workDraft?.id].filter(Boolean))).changed) { setRoutine(all); routineChanged = true; }
       deferred += rt.deferred.length + rb.deferred.length;
       changed = changed || rt.changed || rb.changed;
       since = data.seq;
@@ -1303,7 +1444,7 @@ function focusTask(id) {
 function handleTaskHash() {
   if (!location.hash.startsWith("#task=")) return;
   const id = decodeURIComponent(location.hash.slice(6)).trim();
-  history.replaceState(null, "", location.pathname + location.search);
+  history.replaceState(history.state, "", location.pathname + location.search);
   if (!id || focusTask(id)) return;
   pendingFocus = id; // quizá aún no llegó por sincronización
   setTimeout(() => { pendingFocus = null; }, 15000);
@@ -1315,14 +1456,14 @@ function handleLinkHash() {
   const params = new URLSearchParams(location.hash.slice(1));
   const code = Sync.normalizeCode(params.get("sync"));
   const server = (params.get("server") || "").replace(/\/+$/, "");
-  history.replaceState(null, "", location.pathname + location.search); // el código no se queda en la barra de direcciones
+  history.replaceState(history.state, "", location.pathname + location.search); // el código no se queda en la barra de direcciones
   if (!Sync.isValidCode(code) || !/^https:\/\/[^/]+/.test(server) || state.sync.code === code) return;
   askConfirm(`¿Unir este dispositivo al código ${Sync.formatCode(code)}? Tus tareas y resúmenes de aquí se sumarán a los del otro dispositivo.`, "Unir").then(async (ok) => {
     if (!ok) return;
     if (serverUrl() !== server) { state.settings.serverUrl = server; save(KEYS.settings, state.settings); } // solo si es otro servidor
     renderSettings();
     $("#sync-card").open = true;
-    $("#settings").classList.remove("hidden");
+    openSheet("#settings");
     await joinSpace(code);
   });
 }
@@ -1613,6 +1754,7 @@ function openNotes(task) {
   fillNotes(task);
   const editor = $("#notes-editor");
   $("#notes-page").classList.remove("hidden");
+  registrarCapa("#notes-page");
   $("#notes-page").scrollTop = 0;
   document.body.classList.add("no-scroll");
   if (!(task.doc || []).length) { editor.focus(); setCaret(editor.firstElementChild, 0); }
@@ -1623,6 +1765,7 @@ function closeNotes() {
   saveNotes();
   closeSlash();
   $("#notes-page").classList.add("hidden");
+  soltarCapa("#notes-page");
   document.body.classList.remove("no-scroll");
   state.notesTask = null;
   renderTasks();
@@ -1709,10 +1852,11 @@ function renderBookList() {
 function renderBookPage() {
   const page = $("#book-page");
   const book = state.books.find((b) => b.id === state.openBook);
-  if (!book) { page.classList.add("hidden"); document.body.classList.remove("no-scroll"); return; }
+  if (!book) { page.classList.add("hidden"); soltarCapa("#book-page"); document.body.classList.remove("no-scroll"); return; }
   const editing = state.editing.has(book.id);
   page.dataset.book = book.id;
   page.classList.remove("hidden");
+  registrarCapa("#book-page");
   document.body.classList.add("no-scroll");
   $("#book-back").classList.toggle("hidden", editing);
   $("#book-bar-actions").classList.toggle("hidden", editing);
@@ -2023,9 +2167,12 @@ function routineWeekHTML() {
     <div class="rt-grid" role="table" aria-label="Cumplimiento por día">
       <div class="rt-grid-row head" role="row"><span></span>${Routine.DAY_SHORT.map((d, i) => `<b class="${s.dates[i] === now ? "today" : ""}">${d}</b>`).join("")}<span></span></div>
       ${s.daily.map((r) => `
-        <div class="rt-grid-row" role="row">
+        <div class="rt-grid-row" role="row" data-id="${esc(r.item.id)}">
           <span class="rt-grid-name">${esc(r.item.text)}</span>
-          ${r.cells.map((c, i) => `<i class="c-${c}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]}">${RT_CELL[c]}</i>`).join("")}
+          ${r.cells.map((c, i) => (c === "done" || c === "miss" || c === "pending")
+            // los días que ya pasaron (y hoy) se pueden corregir con un toque
+            ? `<i class="c-${c}" role="button" tabindex="0" style="cursor:pointer" data-action="rt-cell" data-date="${s.dates[i]}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]} (toca para cambiar)">${RT_CELL[c]}</i>`
+            : `<i class="c-${c}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]}">${RT_CELL[c]}</i>`).join("")}
           <span class="rt-grid-score">${r.due ? `${r.done}/${r.due}` : "—"}</span>
         </div>`).join("")}
     </div>` : `<p class="muted text-sm">No tienes pendientes diarios.</p>`;
@@ -2158,6 +2305,12 @@ $("#routine-body").addEventListener("click", (e) => {
       commitRoutine();
       renderRoutine();
       break;
+    case "rt-cell": // corregir un día de la semana que se olvidó marcar
+      if (!item || !btn.dataset.date || btn.dataset.date > now) break;
+      Routine.toggle(state.routine, item, btn.dataset.date, Date.now());
+      commitRoutine();
+      renderRoutine();
+      break;
     case "rt-edit": state.routineEdit = !state.routineEdit; renderRoutine(); break;
     case "rt-open-week": state.routineView = "week"; state.routineWeek = null; renderRoutine(); window.scrollTo(0, 0); break;
     case "rt-add": openRoutineSheet(null); break;
@@ -2247,7 +2400,7 @@ $("#work-sheet").addEventListener("click", (e) => {
     const data = { title: $("#wk-title").value, url, closes: $("#wk-closes").value, status: $("#wk-state").value, note: $("#wk-note").value, source: d.source };
     const err = (t) => { $("#wk-error").textContent = t; };
     if (!data.title.trim()) return err("Escribe el nombre del trabajo u oferta.");
-    if (url && !Work.cleanUrl(url)) return err("El enlace debe empezar con https:// y no llevar espacios.");
+    if (url && !Work.cleanUrl(url)) return err("El enlace debe empezar con https:// o http:// y no llevar espacios.");
     if (d.id) Work.update(state.work, d.id, data); else Work.add(state.work, data, Date.now(), uid());
     commitRoutine();
     closeWorkSheet();
@@ -2324,7 +2477,8 @@ setInterval(() => { if (!document.hidden) scheduleSync(0); }, 20000); // con la 
 let routineDay = today();
 setInterval(() => {
   runReminders();
-  if (state.editingTask === null) renderTasks();
+  // no se redibuja mientras usas la lista (perdería el foco o la posición)
+  if (state.editingTask === null && !document.activeElement?.closest?.("#tab-tasks")) renderTasks();
   // al cambiar el día, la rutina empieza de nuevo
   if (today() !== routineDay) { routineDay = today(); if (state.tab === "routine" && !routineDraft) renderRoutine(); }
 }, 30000);

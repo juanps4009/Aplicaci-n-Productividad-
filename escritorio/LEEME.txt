@@ -15,3 +15,17 @@ OPCION C - Instalarla desde el navegador
   Edge:   menu ... -> Aplicaciones -> "Instalar este sitio como una aplicacion" y marca "Crear acceso directo en el escritorio".
 
 Para quitarlo: borra "Pendientes" del escritorio y la carpeta %LOCALAPPDATA%\Pendientes.
+
+WIDGET DE PENDIENTES EN EL ESCRITORIO (ventana pequena, sin marco)
+  1. Descarga "Crear-widget-escritorio.cmd" y abrelo con doble clic (mismos avisos de SmartScreen que arriba).
+     La primera vez descarga un componente oficial de Microsoft (WebView2, unos 9 MB; es el motor de Edge que ya trae Windows 11).
+  2. Aparece "Pendientes (widget)" en tu escritorio: una ventana pequena SIN barra ni boton de cerrar, en la esquina derecha,
+     con tus tareas pendientes. Pregunta si quieres que se abra sola al encender el PC.
+  3. Primera vez: toca la flecha de arriba a la derecha, conecta la sincronizacion con tu codigo (igual que en el celular)
+     y cierra esa ventana. El widget guarda sus datos aparte de tu navegador, por eso hay que conectarlo una vez.
+  4. Tocar una tarea abre la app completa en esa tarea. Se mueve arrastrando el titulo "Pendientes".
+     Recuerda donde lo dejaste. Se actualiza solo (cada ~20 segundos y al instante si cambias algo en la app).
+  5. Icono junto al reloj (flecha ^ de la barra de tareas): clic derecho para "Siempre encima de otras ventanas",
+     "Abrir la app completa", "Recargar" y "Cerrar el widget". Como no tiene boton de cerrar, se cierra desde ahi.
+  Para quitarlo: cierra el widget desde ese icono y borra "Pendientes (widget)" del escritorio y de la carpeta de Inicio
+  (Win+R -> shell:startup). Los datos estan en %LOCALAPPDATA%\Pendientes (puedes borrar esa carpeta).

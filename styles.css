@@ -77,7 +77,7 @@ button { touch-action: manipulation; color: inherit; }
 }
 .nav-btn {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 0.6rem 0; min-height: 56px; font-size: 0.75rem; color: var(--faint);
+  padding: 0.6rem 0; min-height: 56px; font-size: 0.75rem; color: var(--muted);
 }
 .nav-btn.active { color: var(--accent); font-weight: 600; }
 
@@ -500,3 +500,22 @@ a.btn-primary { display: block; }
 .menu-list button.active { font-weight: 700; color: var(--accent); }
 .bottom-nav .nav-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .rt-review-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; }
+/* ---------- Widget de escritorio (#widget) ---------- */
+.widget-mode .app-header, .widget-mode .app-main, .widget-mode .bottom-nav { display: none !important; }
+#widget-view { padding: 0.5rem 0.6rem 0.8rem; }
+.widget-head { display: flex; align-items: center; justify-content: space-between; padding: 0.25rem 0.25rem 0.5rem; position: sticky; top: 0; background: var(--bg, inherit); }
+.widget-head .overdue { color: var(--danger); }
+.widget-list { list-style: none; margin: 0; padding: 0; }
+.widget-item { display: flex; align-items: flex-start; gap: 0.55rem; padding: 0.5rem 0.4rem; border-radius: 0.6rem; cursor: pointer; }
+.widget-item:hover, .widget-item:focus-visible { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
+.widget-item .dot { margin-top: 0.4rem; }
+.widget-item[data-prio="high"] .dot { background: var(--high); }
+.widget-item[data-prio="medium"] .dot { background: var(--medium); }
+.widget-item[data-prio="low"] .dot { background: var(--low); }
+.widget-item .task-text { font-size: 0.92rem; line-height: 1.25; }
+.widget-empty { padding: 2rem 0; text-align: center; }
+/* Ventana sin marco (mini-aplicación de escritorio): sin selección de texto y encabezado para arrastrar */
+.widget-frameless { user-select: none; overflow: hidden; }
+.widget-frameless .widget-head { cursor: move; }
+.widget-frameless .widget-head button, .widget-frameless .widget-item { cursor: pointer; }
+.widget-frameless #widget-view { height: 100vh; overflow-y: auto; }

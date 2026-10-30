@@ -162,7 +162,12 @@
       p = { id: "p:" + key, kind: "period", done: {} };
       list.push(p);
     }
-    if (value) p.done[item.id] = now || 1; else delete p.done[item.id];
+    if (value) p.done[item.id] = now || 1;
+    else {
+      delete p.done[item.id];
+      /* periodo sin marcas: se quita el registro; stampChanges lo ve ausente y sincroniza un borrado (lápida) */
+      if (!Object.keys(p.done).length) list.splice(list.indexOf(p), 1);
+    }
     return !!value;
   }
   const toggle = (list, item, date, now) => setDone(list, item, date, !isDone(list, item, date), now);

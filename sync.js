@@ -133,7 +133,11 @@
      Cada registro: "e1:" + base64url(iv[12] + cifrado), con id|col como datos autenticados. */
   const te = new TextEncoder(), td = new TextDecoder();
   const b64u = {
-    enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+    enc: (buf) => {
+      const u = new Uint8Array(buf); let s = "";
+      for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+      return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    },
     dec: (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0)),
   };
 

@@ -45,7 +45,7 @@ ok('marcar y desmarcar (por texto o id, con fecha); salida en Markdown y en JSON
 
 // ---- editar, quitar y errores claros
 clock += 1000; out = await cli('editar', 'Pagar', '--texto', 'Pagar servicios', '--frecuencia', 'semanal'); assert(out.includes('Pagar servicios (semanal)'));
-clock += 1000; out = await cli('quitar', 'Pagar servicios'); assert(out.includes('Quitado')); assert.strictEqual(rows().filter((r) => r.deleted).length, 1); assert.strictEqual(JSON.parse(await cli('ver', '--json')).items.length, 3);
+clock += 1000; out = await cli('quitar', 'Pagar servicios'); assert(out.includes('Quitado')); assert.strictEqual(rows().filter((r) => r.deleted && !r.id.includes('p:')).length, 1); assert.strictEqual(JSON.parse(await cli('ver', '--json')).items.length, 3);
 await assert.rejects(cli('marcar', 'no existe'), /No hay ningún pendiente/); await assert.rejects(cli('marcar', 'r'), /coincide con varios/); await assert.rejects(cli('agregar', 'x', '--frecuencia', 'anual'), /Frecuencia desconocida/);
 await assert.rejects(cli('agregar', 'x', '--dias', 'lunes,festivo'), /Día desconocido/); await assert.rejects(cli('marcar', 'resumen', '--fecha', 'ayer'), /Fecha inválida/); await assert.rejects(cli('bailar'), /Orden desconocida/);
 ok('editar y quitar; los errores se explican en español');
