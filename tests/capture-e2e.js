@@ -42,6 +42,14 @@ const assert = require('assert');
   const o = (await routine()).find((r) => r.title === 'Traductor remoto'); assert.deepStrictEqual([o.kind, o.closes, o.url, o.status], ['opp', '2026-10-30', 'https://www.workana.com/job/x', 'review']);
   assert.strictEqual(await p.evaluate(() => state.tab), 'work'); assert(await p.locator('.wk-card', { hasText: 'Traductor remoto' }).isVisible()); ok('oferta con enlace y cierre, en Trabajo');
 
+  // ---- ingreso: monto, tipo y cliente; abre Ingresos
+  await capture('cobré $180.000 Tienda Luna presencial'); assert((await p.locator('.qc-preview').innerText()).includes('180.000'));
+  await p.click('#qc-save'); await p.waitForTimeout(100);
+  const m = (await routine()).find((r) => r.kind === 'income'); assert.deepStrictEqual([m.client, m.amount, m.type, m.date], ['Tienda Luna', 180000, 'presencial', '2026-10-29']);
+  assert.strictEqual(await p.evaluate(() => state.workView), 'income'); assert((await p.locator('#work-body').innerText()).includes('Tienda Luna'));
+  await capture('cobré a Ana'); await p.click('.qc-chip[data-v=income]'); await p.click('#qc-save'); assert(await p.locator('#qc-sheet').isVisible()); await p.keyboard.press('Escape');
+  await p.click('#work-body [data-view=opps]'); ok('ingreso con monto y tipo; sin monto no se guarda');
+
   // ---- cambiar destino a mano y quitar un chip
   await capture('mañana revisar Workana'); await p.click('.qc-chip[data-v=routine]');
   assert.strictEqual(await p.locator('.qc-chip[aria-checked=true]').innerText(), 'Rutina');
