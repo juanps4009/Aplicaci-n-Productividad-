@@ -1,7 +1,7 @@
 "use strict";
 /* Captura rápida: un botón «Anotar» (y Ctrl+K o «/» en el computador) abre una hoja con un solo campo que entiende
    frases como «mañana 9am llamar a Ana !» (quickparse.js), resalta lo que entendió y lo guarda donde corresponde:
-   Pendientes, Rutina u Oportunidades. Usa las funciones de app.js (cargar después de app.js). */
+   Pendientes, Rutina, Oportunidades o Ingresos (si la app ya los tiene). Usa las funciones de app.js (cargar después de app.js). */
 (function () {
   const $ = (s, r = document) => r.querySelector(s);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -19,6 +19,7 @@
     link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
     x: '<path d="M7 7l10 10M17 7L7 17"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    coin: '<circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 1.9 0 2.6 5 1.4 5 4.2 0 1.1-1.1 1.9-2.5 1.9-1.2 0-2.2-.5-2.7-1.4M12 6.5V8M12 16v1.5"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   };
   const ic = (n) => `<svg viewBox="0 0 24 24" class="qc-i" aria-hidden="true">${ICON[n]}</svg>`;
@@ -30,7 +31,9 @@
     { k: "task", label: "Pendiente", icon: "list", tab: "tasks", ok: () => has("state") && has("persistTasks") },
     { k: "routine", label: "Rutina", icon: "repeat", tab: "routine", ok: () => has("Routine") && has("commitRoutine") },
     { k: "opp", label: "Oportunidad", icon: "brief", tab: "work", ok: () => has("Work") && has("commitRoutine") },
+    { k: "income", label: "Ingreso", icon: "coin", tab: "work", ok: () => has("Work") && typeof Work.addIncome === "function" },
   ];
+  const money = (n) => "$ " + Math.round(n).toLocaleString("es-CO").replace(/,/g, ".");
   const kindOf = (k) => KINDS.find((x) => x.k === k);
   const rerender = (tab) => {
     if (tab === "tasks" && has("renderTasks")) renderTasks();
@@ -64,7 +67,15 @@
     commitRoutine(); rerender("work");
     return { id: rec.id, undo: () => { Work.remove(state.work, rec.id); commitRoutine(); rerender("work"); } };
   }
-  const SAVE = { task: addTask, routine: addRoutine, opp: addOpp };
+  function addIncome(p, raw) {
+    if (!p.amount) return null;
+    const rec = Work.addIncome(state.work, { client: p.title || "Cliente", amount: p.amount, date: p.due || todayKey(), type: p.itype || "claude" }, Date.now(), uid());
+    if (!rec) return null;
+    if ("workView" in state) state.workView = "income";
+    commitRoutine(); rerender("work");
+    return { id: rec.id, undo: () => { state.work = state.work.filter((r) => r.id !== rec.id); commitRoutine(); rerender("work"); } };
+  }
+  const SAVE = { task: addTask, routine: addRoutine, opp: addOpp, income: addIncome };
 
   /* ---------- aviso con «Deshacer» (lo usa también swipe.js) ---------- */
   let toastTimer;
@@ -162,8 +173,12 @@
       const c = p.closes || p.due;
       chip("opp", "clock", c ? "Cierra " + dateLabel(c).toLowerCase() : "Sin fecha de cierre", span("date"));
       if (p.url) { try { chip("opp", "link", new URL(p.url).hostname.replace(/^www\./, ""), span("url")); } catch { /* enlace raro: se ignora */ } }
+    } else if (kind === "income") {
+      chip("rut", "coin", p.amount ? money(p.amount) : "Falta el monto, por ejemplo $150.000", span("money"));
+      chip("opp", "brief", p.itype === "presencial" ? "Presencial" : "Con Claude");
+      chip("date", "cal", p.due ? dateLabel(p.due) : "Hoy", span("date"));
     }
-    const where = { task: "Pendientes", routine: "Rutina", opp: "Oportunidades" }[kind];
+    const where = { task: "Pendientes", routine: "Rutina", opp: "Oportunidades", income: "Ingresos" }[kind];
     body.innerHTML = `<div class="qc-preview"><p class="qc-label">Va a ${where}</p>
       <p class="qc-title ${p.title ? "" : "qc-empty"}">${esc(p.title || "Sigue escribiendo…")}</p>${chips.length ? `<div class="qc-chips">${chips.join("")}</div>` : ""}</div>
       <p class="qc-label">¿Va en otro lugar?</p><div class="qc-dest" role="radiogroup">${KINDS.filter((x) => x.ok()).map((x) => `<button type="button" class="qc-chip" role="radio" data-qc="kind" data-v="${x.k}" aria-checked="${x.k === kind}">${ic(x.icon)}${x.label}</button>`).join("")}</div>`;
@@ -178,11 +193,12 @@
     if (!p.title && kind !== "task") p.title = raw;
     let res = null;
     try { res = SAVE[kind](p, raw); } catch (e) { console.error(e); }
-    if (!res) { toast("No se pudo guardar. Revisa el texto e inténtalo de nuevo."); return; }
+    if (!res) { toast(kind === "income" ? "Falta el monto. Escribe, por ejemplo, «cobré $150.000 Ana»." : "No se pudo guardar. Revisa el texto e inténtalo de nuevo."); return; }
     close();
     const tab = kindOf(kind).tab;
     const msg = kind === "task" ? `Añadido a Pendientes${p.due ? " · " + dateLabel(p.due).toLowerCase() : ""}${p.time ? " " + p.time : ""}`
-      : kind === "routine" ? "Añadido a tu rutina · " + recLabel(p.rec).toLowerCase() : "Oferta guardada · por revisar";
+      : kind === "routine" ? "Añadido a tu rutina · " + recLabel(p.rec).toLowerCase()
+      : kind === "income" ? `Ingreso de ${money(p.amount)} guardado` : "Oferta guardada · por revisar";
     if (typeof state !== "undefined" && state.tab !== tab) goTab(tab);
     toast(msg, "Deshacer", () => { res.undo(); toast("Listo, no se guardó"); });
   }
