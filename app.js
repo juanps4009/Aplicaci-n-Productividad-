@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.21.1-beta";
+const APP_VERSION = "0.21.2-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -75,6 +75,8 @@ const state = {
   incMonth: null,          // mes que se mira en Ingresos, "AAAA-MM" (null = el actual)
   routineOther: [],        // registros de ese canal que esta versión no entiende: se conservan y sincronizan sin tocarlos
   routineView: "today",    // "today" o "week" (resumen semanal)
+  bookFilter: "all",       // lista de resúmenes: "all", "reading" o "done"
+  chapterBook: null,       // libro cuyo capítulo se está resumiendo (hoja «Resumir capítulo»)
   routineWeek: null,       // semana que se mira en el resumen (null = la actual)
   routineEdit: false,      // modo «editar rutina»
   filter: load(KEYS.filter, "all"),
@@ -487,6 +489,7 @@ function cerrarCapa(id) {
   else if (id === "#routine-sheet") closeRoutineSheet();
   else if (id === "#work-sheet") closeWorkSheet();
   else if (id === "#work-status") { closeSheet(id); workStatusId = null; }
+  else if (id === "#chapter-sheet") closeChapterSheet();
   else closeSheet(id);
   soltarCapa(id); // por si la función de cierre no lo hizo
 }
@@ -1850,10 +1853,10 @@ $("#notes-back").addEventListener("click", closeNotes);
 
 /* ---------- Resúmenes de libros ---------- */
 const SECTIONS = [
-  { key: "ideas", cls: "ideas", label: "💡 Ideas clave", hint: "Una idea por línea…" },
-  { key: "notes", cls: "notes", label: "📝 Notas / Resumen por capítulos", hint: "Capítulo 1: …" },
-  { key: "quotes", cls: "quotes", label: "❝ Citas destacadas", hint: "“Cita” — página" },
-  { key: "conclusion", cls: "conclusion", label: "🧭 Conclusión personal", hint: "¿Qué te llevas de este libro?" },
+  { key: "ideas", cls: "ideas", label: "Ideas clave", hint: "Una idea por línea…" },
+  { key: "notes", cls: "notes", label: "Notas / Resumen por capítulos", hint: "Capítulo 1: …" },
+  { key: "quotes", cls: "quotes", label: "Citas destacadas", hint: "“Cita” — página" },
+  { key: "conclusion", cls: "conclusion", label: "Conclusión personal", hint: "¿Qué te llevas de este libro?" },
 ];
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -1879,6 +1882,7 @@ function bookPageViewHTML(b) {
   return `
     <h2 class="page-title"${alignAttr(b.titleAlign)}>${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</h2>
     <p class="muted book-page-author"${alignAttr(b.authorAlign)}>${RT.toHTML(b.author, b.authorMarks) || "Autor desconocido"}</p>
+    ${readingPanelHTML(b)}
     ${b.template === "free" ? freeViewHTML(b) : `<div class="grid-gap">${boxes}</div>`}`;
 }
 
@@ -1922,16 +1926,124 @@ function bookCover(b) {
   return `--cover:${bg};--cover-ink:${fg}`;
 }
 
+/* Lomo del libro en «Leyendo ahora»: usa la misma portada de color que la lista */
+function spineHTML(b, cls = "") {
+  const letter = String(b.title || "").trim().charAt(0).toUpperCase() || "·";
+  return `<span class="book-spine ${cls}" style="${bookCover(b)}" aria-hidden="true">${esc(letter)}</span>`;
+}
+
+function readingBarHTML(r) {
+  return r.pct === null ? "" : `<span class="read-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance del libro"><i style="width:${r.pct}%"></i></span>`;
+}
+
+/* «Leyendo ahora»: los libros en curso, con su capítulo y atajos para avanzar o resumir */
+function readingNowHTML() {
+  const list = Reading.reading(state.books.filter((b) => !b.isNew));
+  if (!list.length) return "";
+  return `<h2 class="books-head">Leyendo ahora</h2>${list.map((b) => {
+    const r = Reading.info(b);
+    return `
+    <div class="reading-card" data-book="${b.id}">
+      ${spineHTML(b, "big")}
+      <div class="reading-main">
+        <button class="reading-title" data-action="open">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</button>
+        <p class="muted text-sm">${RT.toHTML(b.author, b.authorMarks)}</p>
+        <p class="reading-prog">${esc(Reading.progressText(b))}</p>
+        ${readingBarHTML(r)}
+        <div class="reading-actions">
+          <button class="btn-secondary" data-action="chap-inc" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>+1 capítulo</button>
+          <button class="btn-secondary" data-action="chap-note">Resumir el ${r.chapter}</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("")}`;
+}
+
 function renderBookList() {
-  $("#book-list").innerHTML = state.books.map((b) => `
+  const books = state.books;
+  const c = Reading.counts(books);
+  if (!c.reading && !c.done) state.bookFilter = "all";
+  const shown = Reading.filter(books, state.bookFilter);
+  $("#reading-now").innerHTML = readingNowHTML();
+  $("#book-filter").innerHTML = c.reading || c.done ? [["all", "Todos", books.length], ["reading", "Leyendo", c.reading], ["done", "Terminados", c.done]]
+    .map(([k, label, n]) => `<button class="bk-chip ${state.bookFilter === k ? "active" : ""}" data-filter="${k}" aria-pressed="${state.bookFilter === k}">${label} <span>${n}</span></button>`).join("") : "";
+  $("#book-list").innerHTML = shown.map((b) => {
+    const r = Reading.info(b), prog = Reading.progressText(b);
+    return `
     <article class="book-card" data-book="${b.id}" style="${bookCover(b)}">
       <button class="book-open" data-action="open">
-        <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
-        <span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>
+        <span class="book-row-main">
+          <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
+          <span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>
+          ${prog ? `<span class="book-row-prog ${r.status}">${esc(prog)}</span>` : ""}
+          ${r.status === "reading" ? readingBarHTML(r) : ""}
+        </span>
       </button>
-    </article>`).join("");
-  $("#book-empty").classList.toggle("hidden", state.books.length > 0);
+    </article>`;
+  }).join("") || (books.length ? `<p class="muted py-6 text-center">Ningún libro en este filtro.</p>` : "");
+  $("#book-empty").classList.toggle("hidden", books.length > 0);
 }
+$("#book-filter").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-filter]");
+  if (!btn) return;
+  state.bookFilter = btn.dataset.filter;
+  renderBookList();
+});
+
+/* Panel de lectura en la página del resumen: estado, capítulo actual y total */
+function readingPanelHTML(b) {
+  const r = Reading.info(b);
+  const seg = `<div class="seg read-seg" role="radiogroup" aria-label="Estado de lectura">${Reading.STATUSES.map((k) =>
+    `<button data-action="read-status" data-value="${k}" role="radio" aria-checked="${r.status === k}" class="${r.status === k ? "active" : ""}">${Reading.STATUS_LABEL[k]}</button>`).join("")}</div>`;
+  if (r.status === "done") return `<div class="read-panel">${seg}<p class="read-done">✓ ${esc(Reading.progressText(b))}</p></div>`;
+  if (r.status !== "reading") return `<div class="read-panel">${seg}</div>`;
+  return `
+    <div class="read-panel">${seg}
+      <div class="chap-row">
+        <button class="icon-btn chap-step" data-action="chap-dec" aria-label="Capítulo anterior" ${r.chapter <= 1 ? "disabled" : ""}>−</button>
+        <p class="chap-now">Capítulo <b>${r.chapter}</b> de
+          <input id="book-chapters" class="field chap-total" type="number" inputmode="numeric" min="0" max="${Reading.MAX}" value="${r.chapters || ""}" placeholder="?" aria-label="Total de capítulos"></p>
+        <button class="icon-btn chap-step" data-action="chap-inc" aria-label="Capítulo siguiente" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>+</button>
+      </div>
+      ${readingBarHTML(r)}
+      <button class="btn-secondary mt-3 w-full py-3" data-action="chap-note">Resumir el capítulo ${r.chapter}</button>
+    </div>`;
+}
+
+/* Aplica un cambio de lectura al libro (y al borrador si se está editando, para que el guardado no lo deshaga) */
+function applyReading(book, patch) {
+  if (!book || !patch) return;
+  Object.assign(book, patch);
+  if (!book.doneAt) delete book.doneAt;
+  const d = state.drafts.get(book.id);
+  if (d) { Object.assign(d, patch); if (!d.doneAt) delete d.doneAt; }
+  commitBooks();
+  renderBooks();
+}
+
+function openChapterSheet(book) {
+  const r = Reading.info(book);
+  state.chapterBook = book.id;
+  $("#chapter-sheet-title").textContent = `Resumir el capítulo ${r.chapter}`;
+  $("#chapter-sheet-book").textContent = book.title || "Sin título";
+  $("#chapter-note").value = "";
+  $("#chapter-save").textContent = r.chapters && r.chapter >= r.chapters ? "Guardar y terminar el libro" : `Guardar y pasar al ${r.chapter + 1}`;
+  openSheet("#chapter-sheet");
+  setTimeout(() => $("#chapter-note").focus(), 50);
+}
+function closeChapterSheet() { closeSheet("#chapter-sheet"); state.chapterBook = null; }
+$("#chapter-save").addEventListener("click", () => {
+  const book = state.books.find((b) => b.id === state.chapterBook);
+  closeChapterSheet();
+  if (book) applyReading(book, Reading.addChapterNote(book, $("#chapter-note").value, Date.now(), uid()));
+});
+$("#chapter-sheet-close").addEventListener("click", closeChapterSheet);
+$("#chapter-sheet").addEventListener("click", (e) => { if (e.target === $("#chapter-sheet")) closeChapterSheet(); });
+$("#book-page").addEventListener("change", (e) => {
+  if (e.target.id !== "book-chapters") return;
+  const book = state.books.find((b) => b.id === $("#book-page").dataset.book);
+  applyReading(book, Reading.setTotal(book, e.target.value));
+});
 
 function renderBookPage() {
   const page = $("#book-page");
@@ -2069,6 +2181,16 @@ function onBookClick(e) {
     case "open":
       openBook(book.id);
       break;
+    case "read-status":
+      applyReading(book, Reading.setStatus(book, btn.dataset.value, Date.now()));
+      break;
+    case "chap-inc":
+    case "chap-dec":
+      applyReading(book, Reading.step(book, action === "chap-inc" ? 1 : -1));
+      break;
+    case "chap-note":
+      openChapterSheet(book);
+      break;
     case "goto": {
       const target = card.querySelector(`.blk[data-type="h1"][data-id="${btn.dataset.target}"]`);
       if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2149,6 +2271,7 @@ function flushEdits() {
   if (bookTimerId) saveBookDraft(bookTimerId);
 }
 $("#book-list").addEventListener("click", onBookClick);
+$("#reading-now").addEventListener("click", onBookClick);
 $("#book-page").addEventListener("click", onBookClick);
 
 /* ---------- Rutina: pendientes de cada día, semana y mes, y resumen semanal ----------

@@ -80,7 +80,9 @@
     <!-- PESTAÑA: RESÚMENES -->
     <section id="tab-books" class="tab-panel hidden">
       <button id="new-book" type="button" class="btn-primary w-full py-3">+ Nuevo resumen de libro</button>
-      <div id="book-list" class="mt-4 space-y-4"></div>
+      <div id="reading-now"></div>
+      <div id="book-filter" class="bk-chips" aria-label="Mostrar resúmenes"></div>
+      <div id="book-list" class="book-list"></div>
       <p id="book-empty" class="muted hidden py-10 text-center">Aún no tienes resúmenes. ¡Crea el primero!</p>
     </section>
   </main>
@@ -143,6 +145,20 @@
     <div class="sheet" role="dialog" aria-label="Estado de la oportunidad">
       <p id="work-status-title" class="muted truncate text-sm"></p>
       <div id="work-status-list" class="menu-list mt-3"></div>
+    </div>
+  </div>
+
+  <!-- RESUMIR EL CAPÍTULO ACTUAL DE UN LIBRO -->
+  <div id="chapter-sheet" class="sheet-backdrop hidden">
+    <div class="sheet" role="dialog" aria-labelledby="chapter-sheet-title">
+      <div class="flex items-center justify-between">
+        <h2 id="chapter-sheet-title" class="text-lg font-bold"></h2>
+        <button id="chapter-sheet-close" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <p id="chapter-sheet-book" class="muted truncate text-sm"></p>
+      <textarea id="chapter-note" class="field mt-3" rows="4" maxlength="600" placeholder="¿Qué te dejó este capítulo? Una o dos frases bastan." aria-label="Lo que te dejó el capítulo"></textarea>
+      <p class="muted mt-1 text-xs">Se añade a «Notas / Resumen por capítulos» de este resumen.</p>
+      <button id="chapter-save" class="btn-primary mt-3 w-full py-3"></button>
     </div>
   </div>
 
@@ -309,6 +325,7 @@
   <script src="richedit.js"></script>
   <script src="routine.js"></script>
   <script src="work.js"></script>
+  <script src="reading.js"></script>
   <script src="app.js"></script>
   <script src="home.js"></script>
   <script src="quickparse.js"></script>

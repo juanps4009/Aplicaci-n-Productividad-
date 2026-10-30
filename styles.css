@@ -286,6 +286,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .page .editor { min-height: 50vh; }
 
 #confirm { z-index: 100; }
+#chapter-sheet { z-index: 90; } /* se abre encima de la página del resumen */
 .grid-gap { display: grid; gap: 0.75rem; }
 .notes-area {
   display: block; width: 100%; min-height: 15rem; resize: none; border: 0; outline: none;
@@ -541,3 +542,50 @@ a.btn-primary { display: block; }
 .widget-frameless .widget-head { cursor: move; }
 .widget-frameless .widget-head button, .widget-frameless .widget-item { cursor: pointer; }
 .widget-frameless #widget-view { height: 100vh; overflow-y: auto; }
+
+/* Resúmenes: lectura (libro actual y capítulo), lomos de color y lista con filtros */
+.books-head { font-size: 1.15rem; font-weight: 750; margin: 1.5rem 0 0.6rem; }
+.reading-card { display: flex; gap: 1rem; padding: 1rem; margin-bottom: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 1.1rem; }
+.reading-main { flex: 1; min-width: 0; }
+.reading-title { display: block; text-align: left; font-size: 1.15rem; font-weight: 750; line-height: 1.25; overflow-wrap: anywhere; }
+.reading-prog { margin-top: 0.6rem; font-size: 0.9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.reading-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.reading-actions .btn-secondary { min-height: 40px; padding: 0 0.9rem; font-size: 0.9rem; font-weight: 600; }
+.btn-secondary:disabled { opacity: 0.45; }
+.read-bar { display: block; height: 5px; margin-top: 0.4rem; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.read-bar i { display: block; height: 100%; border-radius: 5px; background: var(--accent); transition: width 0.4s cubic-bezier(0.23, 1, 0.32, 1); }
+.book-spine {
+  flex-shrink: 0; display: grid; place-items: center; width: 34px; height: 48px; border-radius: 4px 8px 8px 4px;
+  background: var(--cover, #1f3a5f); color: var(--cover-ink, #fff); font-family: Georgia, "Times New Roman", serif; font-weight: 700;
+  box-shadow: inset 3px 0 0 rgb(0 0 0 / 0.2);
+}
+.book-spine.big { width: 56px; height: 80px; font-size: 1.4rem; }
+.bk-chips { display: flex; gap: 0.5rem; margin-top: 1.25rem; overflow-x: auto; scrollbar-width: none; }
+.bk-chips:empty { display: none; }
+.bk-chip { flex-shrink: 0; min-height: 40px; padding: 0 0.95rem; border-radius: 9999px; background: var(--surface-2); color: var(--muted); font-size: 0.9rem; font-weight: 600; }
+.bk-chip span { opacity: 0.7; font-variant-numeric: tabular-nums; }
+.bk-chip.active { background: var(--text); color: var(--bg); }
+.book-list { display: grid; gap: 0.6rem; margin-top: 1rem; }
+.book-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.book-row-title { flex: none; font-size: 1.05rem; }
+.book-row-author { max-width: none; text-align: left; font-size: 0.8rem; }
+.book-row-prog { margin-top: 2px; font-size: 0.8rem; font-weight: 700; color: inherit; opacity: 0.9; font-variant-numeric: tabular-nums; }
+.book-row-main .read-bar { height: 4px; background: rgb(255 255 255 / 0.25); }
+.book-row-main .read-bar i { background: currentColor; }
+
+/* Página del resumen: panel de lectura y bloques para leer (sin cajas de color fuera de la edición) */
+.read-panel { margin: 0 0 1.5rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; }
+.read-seg button { min-height: 38px; font-size: 0.85rem; }
+.chap-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.9rem; }
+.chap-now { flex: 1; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.4rem; }
+.chap-now b { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.chap-total { width: 4.2rem; min-height: 40px; padding: 0.3rem 0.5rem; text-align: center; }
+.chap-step { width: 44px; height: 44px; border-radius: 12px; background: var(--surface-2); font-size: 1.3rem; font-weight: 700; }
+.chap-step:disabled { opacity: 0.4; }
+.read-done { margin-top: 0.8rem; font-weight: 600; color: var(--low); }
+.box h3 { display: flex; align-items: center; gap: 0.45rem; }
+.box h3::before { content: ""; flex-shrink: 0; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
+#book-detail .box:not(.block) { padding: 0.25rem 0 0; background: none; border-radius: 0; }
+#book-detail .box:not(.block) + .box:not(.block) { padding-top: 1.1rem; border-top: 1px solid var(--border); }
+#book-detail .box:not(.block) p { max-width: 65ch; font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; font-size: 1.05rem; line-height: 1.65; }
+#book-detail .box.quotes:not(.block) p { font-style: italic; font-size: 1.12rem; }
