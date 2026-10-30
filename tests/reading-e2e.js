@@ -19,7 +19,7 @@ const assert = require('assert');
   await p.click('#book-back'); await newBook('Céntrate', 'Cal Newport'); await p.click('#book-back');
   assert.strictEqual(await p.locator('.book-card').count(), 2);
   assert.strictEqual(await p.locator('#reading-now').innerText(), ''); assert.strictEqual(await p.locator('#book-filter button').count(), 0);
-  assert.strictEqual(await p.locator('.book-card:has-text("Céntrate") .book-spine').innerText(), 'C'); ok('sin lecturas: lista simple con lomo de color, sin filtros');
+  assert((await p.locator('.book-card:has-text("Céntrate")').getAttribute('style')).includes('--cover')); ok('sin lecturas: lista de portadas de color, sin filtros');
 
   // ---- empezar a leer, capítulo y total
   await p.click('.book-card:has-text("Hábitos") .book-open');
