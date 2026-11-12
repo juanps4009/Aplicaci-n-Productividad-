@@ -43,11 +43,11 @@ const Work = require(join(ROOT, "work.js"));
 const PREFIX = "rt:"; // la rutina y las oportunidades viajan por el servidor como «books» con este prefijo (ver app.js)
 export const CODE_FILE = process.env.PENDIENTES_CODIGO_ARCHIVO || join(homedir(), ".pendientes", "codigo.txt");
 
-class Fallo extends Error {}
+export class Fallo extends Error {}
 const fail = (msg) => { throw new Fallo(msg); };
 
 /* ---------- configuración ---------- */
-function readServer() {
+export function readServer() {
   if (process.env.PENDIENTES_SERVIDOR) return process.env.PENDIENTES_SERVIDOR.replace(/\/+$/, "");
   const m = /server:\s*"([^"]*)"/.exec(readFileSync(join(ROOT, "config.js"), "utf8"));
   if (!m || !m[1]) fail("No encuentro la dirección del servidor en config.js.");
@@ -55,7 +55,7 @@ function readServer() {
 }
 
 /* El código: primero la variable de entorno PENDIENTES_CODIGO; si no, el archivo local */
-function readCode(env) {
+export function readCode(env) {
   const fromEnv = env.envCode !== undefined ? env.envCode : process.env.PENDIENTES_CODIGO;
   if (fromEnv) {
     const code = Sync.normalizeCode(fromEnv);
@@ -136,7 +136,7 @@ async function pushChanges(ctx, entries, before, stamps) {
 }
 
 /* ---------- argumentos ---------- */
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const pos = [], opt = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
