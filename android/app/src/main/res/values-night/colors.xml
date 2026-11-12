@@ -12,6 +12,7 @@
     <color name="accent_soft">#33818CF8</color>
     <color name="on_accent">#0F172A</color>
     <color name="danger">#FB7185</color>
+    <color name="answer">#22C55E</color>
     <color name="prio_high">#F87171</color>
     <color name="prio_medium">#FBBF24</color>
     <color name="prio_low">#4ADE80</color>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mantener pulsado el icono de la app → «Llamar a Claude» -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_call"
+        android:shortcutId="llamar_claude"
+        android:shortcutLongLabel="@string/shortcut_call_long"
+        android:shortcutShortLabel="@string/shortcut_call">
+        <intent
+            android:action="app.productividad.widget.OUTGOING"
+            android:targetClass="app.productividad.widget.CallActivity"
+            android:targetPackage="app.productividad.widget" />
+    </shortcut>
+</shortcuts>

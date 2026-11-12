@@ -1,10 +1,12 @@
 name: Widget de Android
 
-# Compila el APK del widget y lo publica en la página de Releases (etiqueta "widget-latest").
+# Compila el APK del widget y lo publica en la página de Releases:
+# - rama que publica la app (claude/hopeful-brahmagupta-m6bura) → etiqueta "widget-latest" (la que descarga la app);
+# - cualquier otra rama claude/** → etiqueta "widget-pruebas" (para probar antes de fusionar, sin tocar la estable).
 on:
   push:
-    branches: ["claude/hopeful-brahmagupta-m6bura"]
-    paths: ["android/**", ".github/workflows/android-widget.yml"]
+    branches: ["claude/**"]
+    paths: ["android/**", "config.js", ".github/workflows/android-widget.yml"]
   workflow_dispatch:
 
 permissions:
@@ -38,11 +40,12 @@ jobs:
       - name: Publicar en Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name == 'claude/hopeful-brahmagupta-m6bura' && 'widget-latest' || 'widget-pruebas' }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk pendientes-widget.apk
-          gh release delete widget-latest --yes --cleanup-tag || true
-          gh release create widget-latest pendientes-widget.apk \
-            --title "Widget de Pendientes (compilación ${{ github.run_number }})" \
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" pendientes-widget.apk \
+            --title "Widget de Pendientes (${TAG}, compilación ${{ github.run_number }}, ${{ github.ref_name }})" \
             --notes "APK del widget de Android. Descárgalo en el celular e instálalo (permite instalar apps desconocidas). Guía: android/README.md" \
             --prerelease \
             --target "$GITHUB_SHA"

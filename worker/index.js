@@ -275,7 +275,8 @@ async function handleSpaceDelete(request, env) {
    Todo el contenido (motivo, contexto, transcripción, mensajes) llega cifrado con la clave del código de
    sincronización (formato «e1:» de sync.js): el servidor solo ve ids, estados y horas.
    Secretos del Worker (opcionales; sin ellos las llamadas responden «no configurado»):
-     FCM_SERVICE_ACCOUNT  JSON de la cuenta de servicio de Firebase
+     FCM_SERVICE_ACCOUNT  JSON de la cuenta de servicio de Firebase (privado)
+     FCM_GOOGLE_SERVICES  contenido de google-services.json (público; el widget lo pide en /call/config)
      GEMINI_API_KEY       clave de Google AI Studio
      GEMINI_LIVE_MODEL / GEMINI_VOICE  (opcional) modelo y voz de Gemini Live */
 const CALL = {
@@ -360,6 +361,18 @@ async function fcmSend(env, space, data, ttl) {
   return { devices: results.length, sent };
 }
 
+/* google-services.json (secreto FCM_GOOGLE_SERVICES) → lo que el widget necesita para iniciar Firebase.
+   Son datos públicos (van dentro de cualquier app); se sirven desde aquí para que el mismo APK funcione sin recompilar. */
+const WIDGET_PACKAGE = "app.productividad.widget";
+function firebaseClientConfig(env) {
+  try {
+    const g = JSON.parse(env.FCM_GOOGLE_SERVICES || "");
+    const client = (g.client || []).find((c) => c.client_info?.android_client_info?.package_name === WIDGET_PACKAGE);
+    const out = { projectId: g.project_info?.project_id, senderId: g.project_info?.project_number, appId: client?.client_info?.mobilesdk_app_id, apiKey: client?.api_key?.[0]?.current_key };
+    return Object.values(out).every((v) => typeof v === "string" && v) ? out : null;
+  } catch { return null; }
+}
+
 const callOut = (c) => ({ id: c.id, dir: c.dir, state: c.state, urgent: c.urgent, invite: c.invite, result: c.result, createdAt: c.created_at, updatedAt: c.updated_at });
 
 async function handleCalls(pathname, body, env) {
@@ -369,6 +382,11 @@ async function handleCalls(pathname, body, env) {
   if (pathname === "/call/status") { // ¿está todo listo para llamar? (sin datos personales)
     const { n } = await db.prepare("SELECT COUNT(*) AS n FROM call_devices WHERE space = ?1").bind(space).first();
     return json({ devices: n, push: !!env.FCM_SERVICE_ACCOUNT, voice: !!env.GEMINI_API_KEY });
+  }
+
+  if (pathname === "/call/config") { // configuración PÚBLICA de Firebase para el widget (sale de google-services.json)
+    const cfg = firebaseClientConfig(env);
+    return cfg ? json(cfg) : json({ error: "llamadas_no_configuradas" }, 503);
   }
 
   if (pathname === "/call/device") { // el celular registra (o quita) su token de Firebase

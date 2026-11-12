@@ -129,6 +129,16 @@ r = (await api('/msg/list', { space, after: all.seq })).body; assert.strictEqual
 assert.deepStrictEqual((await api('/msg/list', { space: other })).body.messages, []);
 ok('mensajes de Claude avisan al celular; lista incremental por seq; encargos atendidos; otro código no ve nada');
 
+// ---- configuración pública de Firebase para el widget (desde google-services.json)
+assert.strictEqual((await api('/call/config', { space })).status, 503);
+const gs = { project_info: { project_number: '123456789', project_id: 'pendientes-test' }, client: [
+  { client_info: { mobilesdk_app_id: '1:123:android:otra', android_client_info: { package_name: 'otra.app' } }, api_key: [{ current_key: 'AIzaOtra' }] },
+  { client_info: { mobilesdk_app_id: '1:123456789:android:abc', android_client_info: { package_name: 'app.productividad.widget' } }, api_key: [{ current_key: 'AIzaWidget' }] }] };
+r = await api('/call/config', { space }, { ...env, FCM_GOOGLE_SERVICES: JSON.stringify(gs) });
+assert.deepStrictEqual(r.body, { projectId: 'pendientes-test', senderId: '123456789', appId: '1:123456789:android:abc', apiKey: 'AIzaWidget' });
+assert.strictEqual((await api('/call/config', { space }, { ...env, FCM_GOOGLE_SERVICES: '{"client":[]}' })).status, 503);
+ok('el widget recibe la configuración pública de Firebase de su paquete (app.productividad.widget)');
+
 // ---- límites diarios y fallo de Gemini
 env.DB.raw.prepare("INSERT OR REPLACE INTO quota (space, day, kind, n) VALUES (?1, ?2, 'call', ?3)").run(space, new Date().toISOString().slice(0, 10), CALL.perDay.call);
 r = await api('/call/new', { space, id: 'llamada0099', dir: 'out', invite: 'e1:q' }); assert.strictEqual(r.status, 429); assert.strictEqual(r.body.error, 'limite_diario');
