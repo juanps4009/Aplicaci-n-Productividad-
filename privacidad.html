@@ -33,6 +33,7 @@
     <li><strong>Si activas la sincronización:</strong> el servidor guarda tus tareas y resúmenes ya cifrados en tu dispositivo con una clave que sale de tu código. El servidor solo ve datos ilegibles, un identificador interno de cada registro, la fecha del último cambio y cuánto ocupa. No ve títulos, textos, fechas límite ni notas.</li>
     <li><strong>Si activas los avisos con la app cerrada:</strong> el servidor guarda la hora de cada aviso y un texto cifrado con una clave que solo tiene tu dispositivo, y la dirección de notificaciones que te da tu navegador. Lo borra al enviar el aviso.</li>
     <li><strong>Widget de Android:</strong> lee tus tareas del servidor con tu código y las muestra en tu pantalla. Guarda una copia en tu celular.</li>
+    <li><strong>Mensajes y llamadas con Claude:</strong> los mensajes, encargos, motivos de llamada y transcripciones se guardan en el servidor <strong>cifrados</strong> con tu código, igual que tus tareas. Para que el celular suene, el servidor manda por Firebase (Google) un aviso que solo lleva un número de llamada, nunca el contenido.</li>
   </ul>
 
   <h2>Tu código</h2>
@@ -53,6 +54,7 @@
   <ul>
     <li>La app se aloja en GitHub Pages y el servidor de sincronización corre en Cloudflare. Como cualquier sitio web, ellos ven la dirección IP de quien se conecta.</li>
     <li>Para evitar abusos, el servidor limita cuántas peticiones por minuto puede hacer cada dirección IP. No guarda ese dato.</li>
+    <li><strong>Llamadas por voz:</strong> durante una llamada, tu voz y lo que dices viajan directamente a <strong>Gemini Live (Google)</strong>, que es la IA que contesta. Con el nivel gratuito, Google puede usar esas conversaciones para mejorar sus modelos. No hables por esa vía de datos muy sensibles. Si no usas llamadas, nada de esto pasa.</li>
   </ul>
 
   <h2>Servicio gratuito</h2>

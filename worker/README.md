@@ -62,6 +62,41 @@ Cosas de la sincronización:
 - Cada dispositivo decide si recibe recordatorios (*Recibir recordatorios aquí*). El modo oscuro también es de cada dispositivo. Un «posponer» solo suena en el dispositivo donde lo pospusiste.
 - Tus tareas y resúmenes se guardan en tu propia base de Cloudflare sin cifrar. Es tu cuenta, pero pensarlo antes de guardar datos muy sensibles.
 
+## Llamadas con Claude (opcional, una sola vez, ~15 minutos)
+
+Con esto Claude puede **llamar al celular** (suena como una llamada aunque esté bloqueado) y tú puedes **llamarlo** desde
+la app o el widget. Todo es gratis: Firebase solo despierta el celular, y la voz es Gemini Live con su nivel gratuito.
+Sin estos pasos la app funciona igual; la parte de llamadas dice «todavía no está configurado».
+
+Los menús de Firebase, Google AI Studio y Cloudflare cambian de nombre a veces; si algo no coincide, busca el más parecido.
+
+1. **Firebase (despertar el celular).** Entra a <https://console.firebase.google.com> con tu cuenta de Google → *Crear un proyecto*
+   (sin Google Analytics). Dentro del proyecto:
+   - *Añadir app* → **Android** → nombre del paquete **`app.productividad.widget`** (exacto) → *Registrar app* →
+     **descarga `google-services.json`**. Los demás pasos del asistente se saltan.
+   - ⚙ *Configuración del proyecto* → *Cuentas de servicio* → **Generar nueva clave privada** → se descarga un archivo `.json`.
+     **Ese archivo es privado:** no lo subas al repositorio ni lo pegues en un chat.
+2. **Gemini (la voz).** Entra a <https://aistudio.google.com> → *Get API key* / *Obtener clave de API* → *Crear clave*. Cópiala.
+   **También es privada.**
+3. **Cloudflare (tu Worker):** *Workers & Pages* → `avisos-productividad` → *Configuración* → *Variables y secretos* →
+   *Añadir* tres veces, siempre de tipo **Secreto**:
+   | Nombre | Valor |
+   |---|---|
+   | `FCM_GOOGLE_SERVICES` | todo el contenido de `google-services.json` (ábrelo con el Bloc de notas, copia y pega) |
+   | `FCM_SERVICE_ACCOUNT` | todo el contenido del `.json` de la cuenta de servicio |
+   | `GEMINI_API_KEY` | la clave de Gemini |
+   Opcionales: `GEMINI_LIVE_MODEL` (por defecto `gemini-3.8-live`) y `GEMINI_VOICE` (por defecto `Charon`).
+4. **Vuelve a pegar `worker/index.js`** (*Editar código* → borrar todo → pegar → *Implementar*): la versión nueva trae las llamadas.
+   Las tablas nuevas se crean solas.
+5. **En el celular:** instala el widget 2.0 y en la app «Pendientes (widget)» toca **Activar llamadas** (y, en Android 14+,
+   **Permitir que suene con el celular bloqueado**).
+
+**Límites por código:** 20 llamadas de Claude, 30 conversaciones de voz y 300 mensajes al día. El nivel gratuito de Gemini
+tiene sus propios límites (y Google puede usar esos datos para mejorar sus modelos); si se agotan, la llamada dice «la voz no respondió».
+
+**Para Claude (en la nube o en tu computador):** `node herramientas/llamar.mjs estado | llamar "motivo" | mensaje "texto" | encargos`
+(ver la ayuda con `node herramientas/llamar.mjs ayuda`). Usa el mismo código de sincronización que `rutina.mjs`.
+
 ## Cosas a saber
 
 - **Android (Chrome):** funciona con la app instalada o en el navegador. El ahorro de batería de algunos fabricantes puede retrasar un aviso unos minutos.
