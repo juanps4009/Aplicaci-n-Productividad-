@@ -44,6 +44,13 @@ async function ensureSchema(db) {
     db.prepare("CREATE TABLE IF NOT EXISTS spaces (space TEXT PRIMARY KEY, created_at INTEGER NOT NULL, touched_at INTEGER NOT NULL)"),
     db.prepare("CREATE TABLE IF NOT EXISTS records (space TEXT NOT NULL, id TEXT NOT NULL, col TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL DEFAULT '', seq INTEGER NOT NULL, PRIMARY KEY (space, id))"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_records_seq ON records (space, seq)"),
+    // Llamadas y mensajes con Claude (ver «Llamadas» más abajo)
+    db.prepare("CREATE TABLE IF NOT EXISTS call_devices (space TEXT NOT NULL, device TEXT NOT NULL, fcm TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (space, device))"),
+    db.prepare("CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, space TEXT NOT NULL, dir TEXT NOT NULL, state TEXT NOT NULL, urgent INTEGER NOT NULL DEFAULT 0, invite TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_calls_space ON calls (space, created_at)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS messages (space TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, sender TEXT NOT NULL, kind TEXT NOT NULL, ref TEXT NOT NULL DEFAULT '', data TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, PRIMARY KEY (space, id))"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_messages_seq ON messages (space, seq)"),
+    db.prepare("CREATE TABLE IF NOT EXISTS quota (space TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (space, day, kind))"),
   ]);
   schemaReady = true;
 }
@@ -124,6 +131,11 @@ async function deliver(env) {
   await db.prepare("DELETE FROM records WHERE deleted = 1 AND updated_at < ?1").bind(now - 60 * DAY).run();
   await db.prepare("DELETE FROM records WHERE space IN (SELECT space FROM spaces WHERE touched_at < ?1)").bind(now - 180 * DAY).run();
   await db.prepare("DELETE FROM spaces WHERE touched_at < ?1").bind(now - 180 * DAY).run();
+  await expireCalls(env, now);
+  await db.prepare("DELETE FROM calls WHERE created_at < ?1").bind(now - 30 * DAY).run();
+  await db.prepare("DELETE FROM messages WHERE created_at < ?1").bind(now - 180 * DAY).run();
+  await db.prepare("DELETE FROM quota WHERE day < ?1").bind(dayKey(now - 3 * DAY)).run();
+  await db.prepare("DELETE FROM call_devices WHERE updated_at < ?1").bind(now - 90 * DAY).run();
   const { results } = await db.prepare(
     "SELECT r.id, r.device, r.title, r.body, r.tag, r.attempts, d.subscription FROM reminders r JOIN devices d ON d.id = r.device WHERE r.fire_at <= ?1 ORDER BY r.fire_at LIMIT 40"
   ).bind(now).all();
@@ -244,8 +256,222 @@ async function handleSpaceDelete(request, env) {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM records WHERE space = ?1").bind(body.space),
     env.DB.prepare("DELETE FROM spaces WHERE space = ?1").bind(body.space),
+    env.DB.prepare("DELETE FROM calls WHERE space = ?1").bind(body.space),
+    env.DB.prepare("DELETE FROM messages WHERE space = ?1").bind(body.space),
+    env.DB.prepare("DELETE FROM call_devices WHERE space = ?1").bind(body.space),
+    env.DB.prepare("DELETE FROM quota WHERE space = ?1").bind(body.space),
   ]);
   return json({ ok: true });
+}
+
+/* ---------- Llamadas y mensajes con Claude ----------
+   Idea tomada de agentring (github.com/mutonby/agentring, Apache-2.0) y rehecha para este servidor gratuito:
+   - Claude (herramientas/llamar.mjs) crea una llamada; el servidor despierta el celular con un aviso de Firebase (FCM)
+     de alta prioridad que solo lleva el id. El celular suena, pide los datos, contesta y habla DIRECTAMENTE con
+     Gemini Live usando un token temporal que le da este servidor (la clave de Gemini nunca sale de aquí).
+   - Al colgar, el celular guarda la transcripción en la llamada y Claude la lee.
+   - Sin contestar en 40 s → «perdida» y queda como mensaje. Desde el celular también se puede llamar: lo que se pida
+     para Claude queda como mensaje «encargo» que la próxima tarea programada atiende.
+   Todo el contenido (motivo, contexto, transcripción, mensajes) llega cifrado con la clave del código de
+   sincronización (formato «e1:» de sync.js): el servidor solo ve ids, estados y horas.
+   Secretos del Worker (opcionales; sin ellos las llamadas responden «no configurado»):
+     FCM_SERVICE_ACCOUNT  JSON de la cuenta de servicio de Firebase
+     GEMINI_API_KEY       clave de Google AI Studio
+     GEMINI_LIVE_MODEL / GEMINI_VOICE  (opcional) modelo y voz de Gemini Live */
+const CALL = {
+  ringMs: 40000,               // sin contestar → perdida
+  maxMs: 20 * 60000,           // una llamada abierta se cierra sola
+  perDay: { call: 20, voice: 30, msg: 300 },
+  devicesPerSpace: 5,
+  inviteChars: 20000, resultChars: 200000, msgChars: 20000,
+  liveModel: "gemini-3.8-live", voice: "Charon",
+  liveUrl: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained",
+};
+const NEXT_STATES = {
+  invited: ["ringing", "active", "declined", "missed", "ended"],
+  ringing: ["ringing", "active", "declined", "missed", "ended"],
+  active: ["active", "ended"],
+};
+const ID_RE = /^[A-Za-z0-9_-]{8,40}$/;
+const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+const MSG_SEQ_NEXT = "(SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE space = ?1)";
+
+async function useQuota(db, space, kind, now) {
+  const day = dayKey(now);
+  const row = await db.prepare("SELECT n FROM quota WHERE space = ?1 AND day = ?2 AND kind = ?3").bind(space, day, kind).first();
+  if (row && row.n >= CALL.perDay[kind]) return false;
+  await db.prepare("INSERT INTO quota (space, day, kind, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(space, day, kind) DO UPDATE SET n = n + 1").bind(space, day, kind).run();
+  return true;
+}
+
+/* Llamadas sin contestar → perdidas (y un mensaje con el motivo); abiertas demasiado tiempo → terminadas */
+async function expireCalls(env, now) {
+  const db = env.DB;
+  const { results } = await db.prepare("SELECT id, space, dir, invite FROM calls WHERE state IN ('invited', 'ringing') AND created_at < ?1 LIMIT 100").bind(now - CALL.ringMs).all();
+  for (const c of results) {
+    const stmts = [db.prepare("UPDATE calls SET state = 'missed', updated_at = ?2 WHERE id = ?1 AND state IN ('invited', 'ringing')").bind(c.id, now)];
+    if (c.dir === "out") stmts.push(db.prepare(`INSERT OR IGNORE INTO messages (space, id, seq, sender, kind, ref, data, created_at) VALUES (?1, ?2, ${MSG_SEQ_NEXT}, 'claude', 'missed', ?3, ?4, ?5)`).bind(c.space, "x" + c.id, c.id, c.invite, now));
+    await db.batch(stmts);
+  }
+  await db.prepare("UPDATE calls SET state = 'ended', updated_at = ?1 WHERE state = 'active' AND updated_at < ?2").bind(now, now - CALL.maxMs).run();
+}
+
+/* Firebase Cloud Messaging (HTTP v1): token OAuth firmado con la cuenta de servicio (RS256, WebCrypto) */
+let fcmAuth = null;
+async function fcmAccessToken(env, sa) {
+  if (fcmAuth && fcmAuth.email === sa.client_email && fcmAuth.exp > Date.now() + 60000) return fcmAuth.token;
+  const pem = String(sa.private_key || "").replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const key = await crypto.subtle.importKey("pkcs8", Uint8Array.from(atob(pem), (c) => c.charCodeAt(0)), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const aud = sa.token_uri || "https://oauth2.googleapis.com/token";
+  const iat = Math.floor(Date.now() / 1000);
+  const head = b64u.enc(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const claims = b64u.enc(enc.encode(JSON.stringify({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging", aud, iat, exp: iat + 3600 })));
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, enc.encode(`${head}.${claims}`));
+  const res = await fetch(aud, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}&assertion=${head}.${claims}.${b64u.enc(sig)}`,
+  });
+  if (!res.ok) throw new Error("Firebase no aceptó la cuenta de servicio (" + res.status + ")");
+  const j = await res.json();
+  fcmAuth = { email: sa.client_email, token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return fcmAuth.token;
+}
+
+async function fcmSend(env, space, data, ttl) {
+  const db = env.DB;
+  const { results } = await db.prepare("SELECT device, fcm FROM call_devices WHERE space = ?1").bind(space).all();
+  if (!results.length || !env.FCM_SERVICE_ACCOUNT) return { devices: results.length, sent: 0 };
+  const sa = JSON.parse(env.FCM_SERVICE_ACCOUNT);
+  const token = await fcmAccessToken(env, sa);
+  let sent = 0;
+  for (const d of results) {
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(sa.project_id)}/messages:send`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: { token: d.fcm, data, android: { priority: "HIGH", ttl } } }),
+    });
+    if (res.ok) sent++;
+    else {
+      const text = await res.text().catch(() => "");
+      if (res.status === 404 || /UNREGISTERED/.test(text)) await db.prepare("DELETE FROM call_devices WHERE space = ?1 AND device = ?2").bind(space, d.device).run();
+    }
+  }
+  return { devices: results.length, sent };
+}
+
+const callOut = (c) => ({ id: c.id, dir: c.dir, state: c.state, urgent: c.urgent, invite: c.invite, result: c.result, createdAt: c.created_at, updatedAt: c.updated_at });
+
+async function handleCalls(pathname, body, env) {
+  const db = env.DB, now = Date.now();
+  const { space } = body;
+
+  if (pathname === "/call/status") { // ¿está todo listo para llamar? (sin datos personales)
+    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM call_devices WHERE space = ?1").bind(space).first();
+    return json({ devices: n, push: !!env.FCM_SERVICE_ACCOUNT, voice: !!env.GEMINI_API_KEY });
+  }
+
+  if (pathname === "/call/device") { // el celular registra (o quita) su token de Firebase
+    if (!ID_RE.test(body.device || "")) return json({ error: "device inválido" }, 400);
+    if (body.remove) {
+      await db.prepare("DELETE FROM call_devices WHERE space = ?1 AND device = ?2").bind(space, body.device).run();
+      return json({ ok: true });
+    }
+    if (!str(body.fcm, 400) || body.fcm.length < 20) return json({ error: "fcm inválido" }, 400);
+    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM call_devices WHERE space = ?1 AND device <> ?2").bind(space, body.device).first();
+    if (n >= CALL.devicesPerSpace) await db.prepare("DELETE FROM call_devices WHERE space = ?1 AND device = (SELECT device FROM call_devices WHERE space = ?1 ORDER BY updated_at LIMIT 1)").bind(space).run();
+    await db.prepare("INSERT INTO call_devices (space, device, fcm, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(space, device) DO UPDATE SET fcm = ?3, updated_at = ?4").bind(space, body.device, body.fcm, now).run();
+    return json({ ok: true });
+  }
+
+  if (pathname === "/call/new") {
+    const { id, dir, invite } = body;
+    if (!ID_RE.test(id || "")) return json({ error: "id inválido" }, 400);
+    if (dir !== "out" && dir !== "in") return json({ error: "dir inválida" }, 400);
+    if (!str(invite, CALL.inviteChars)) return json({ error: "invite inválido" }, 400);
+    if (await db.prepare("SELECT 1 AS x FROM calls WHERE id = ?1").bind(id).first()) return json({ error: "id repetido" }, 409);
+    if (dir === "in") {
+      await db.prepare("INSERT INTO calls (id, space, dir, state, urgent, invite, created_at, updated_at) VALUES (?1, ?2, 'in', 'active', 0, ?3, ?4, ?4)").bind(id, space, invite, now).run();
+      return json({ id, state: "active" });
+    }
+    if (!env.FCM_SERVICE_ACCOUNT) return json({ error: "llamadas_no_configuradas" }, 503);
+    const { n } = await db.prepare("SELECT COUNT(*) AS n FROM call_devices WHERE space = ?1").bind(space).first();
+    if (!n) return json({ error: "sin_celular" }, 409);
+    if (!(await useQuota(db, space, "call", now))) return json({ error: "limite_diario" }, 429);
+    await db.prepare("INSERT INTO calls (id, space, dir, state, urgent, invite, created_at, updated_at) VALUES (?1, ?2, 'out', 'invited', ?3, ?4, ?5, ?5)").bind(id, space, body.urgent ? 1 : 0, invite, now).run();
+    const push = await fcmSend(env, space, { t: "call", id, urgent: body.urgent ? "1" : "0" }, "40s");
+    if (!push.sent) { // no se pudo despertar ningún celular: queda como perdida con su mensaje
+      await db.prepare("UPDATE calls SET created_at = ?2 WHERE id = ?1").bind(id, now - CALL.ringMs - 1).run();
+      await expireCalls(env, now);
+      return json({ id, state: "missed", devices: push.devices, sent: 0 });
+    }
+    return json({ id, state: "invited", devices: push.devices, sent: push.sent });
+  }
+
+  if (pathname === "/call/get" || pathname === "/call/update") {
+    if (!ID_RE.test(body.id || "")) return json({ error: "id inválido" }, 400);
+    await expireCalls(env, now);
+    const c = await db.prepare("SELECT * FROM calls WHERE id = ?1 AND space = ?2").bind(body.id, space).first();
+    if (!c) return json({ error: "no encontrada" }, 404);
+    if (pathname === "/call/get") return json(callOut(c));
+    const { state, result } = body;
+    if (!(NEXT_STATES[c.state] || []).includes(state)) return json({ error: "cambio de estado inválido", state: c.state }, 409);
+    if (result !== undefined && !str(result, CALL.resultChars)) return json({ error: "result inválido" }, 400);
+    await db.prepare("UPDATE calls SET state = ?2, result = COALESCE(?3, result), updated_at = ?4 WHERE id = ?1").bind(c.id, state, result === undefined ? null : result, now).run();
+    return json(callOut(await db.prepare("SELECT * FROM calls WHERE id = ?1").bind(c.id).first()));
+  }
+
+  if (pathname === "/voice/token") { // token temporal de Gemini Live para UNA conversación
+    if (!env.GEMINI_API_KEY) return json({ error: "voz_no_configurada" }, 503);
+    if (!ID_RE.test(body.id || "")) return json({ error: "id inválido" }, 400);
+    const c = await db.prepare("SELECT state FROM calls WHERE id = ?1 AND space = ?2").bind(body.id, space).first();
+    if (!c || !["invited", "ringing", "active"].includes(c.state)) return json({ error: "la llamada no está abierta" }, 409);
+    if (!(await useQuota(db, space, "voice", now))) return json({ error: "limite_diario" }, 429);
+    const res = await fetch("https://generativelanguage.googleapis.com/v1alpha/auth_tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+      body: JSON.stringify({ uses: 1, expireTime: new Date(now + 30 * 60000).toISOString(), newSessionExpireTime: new Date(now + 2 * 60000).toISOString() }),
+    });
+    if (!res.ok) return json({ error: "voz_no_disponible", status: res.status }, 502);
+    const t = await res.json();
+    if (!t || typeof t.name !== "string") return json({ error: "voz_no_disponible" }, 502);
+    return json({ token: t.name, url: CALL.liveUrl, model: env.GEMINI_LIVE_MODEL || CALL.liveModel, voice: env.GEMINI_VOICE || CALL.voice });
+  }
+
+  if (pathname === "/msg/send") {
+    const { id, sender, kind, data } = body;
+    if (!ID_RE.test(id || "")) return json({ error: "id inválido" }, 400);
+    if (sender !== "claude" && sender !== "yo") return json({ error: "sender inválido" }, 400);
+    if (kind !== "msg" && kind !== "encargo") return json({ error: "kind inválido" }, 400);
+    if (!str(data, CALL.msgChars) || !data) return json({ error: "data inválida" }, 400);
+    if (!(await useQuota(db, space, "msg", now))) return json({ error: "limite_diario" }, 429);
+    await db.prepare(`INSERT INTO messages (space, id, seq, sender, kind, data, created_at) VALUES (?1, ?2, ${MSG_SEQ_NEXT}, ?3, ?4, ?5, ?6) ON CONFLICT(space, id) DO NOTHING`).bind(space, id, sender, kind, data, now).run();
+    let push = { devices: 0, sent: 0 };
+    if (sender === "claude") try { push = await fcmSend(env, space, { t: "msg", id }, "86400s"); } catch { /* el mensaje queda guardado igual */ }
+    return json({ ok: true, ...push });
+  }
+
+  if (pathname === "/msg/list") {
+    const after = body.after === undefined ? 0 : body.after;
+    if (!Number.isInteger(after) || after < 0) return json({ error: "after inválido" }, 400);
+    await expireCalls(env, now);
+    const { results } = await db.prepare("SELECT id, seq, sender, kind, ref, data, done, created_at FROM messages WHERE space = ?1 AND seq > ?2 ORDER BY seq LIMIT 201").bind(space, after).all();
+    const more = results.length > 200, page = more ? results.slice(0, 200) : results;
+    return json({
+      messages: page.map((m) => ({ id: m.id, seq: m.seq, sender: m.sender, kind: m.kind, ref: m.ref, data: m.data, done: m.done, createdAt: m.created_at })),
+      seq: page.length ? page[page.length - 1].seq : after,
+      more,
+    });
+  }
+
+  if (pathname === "/msg/done") { // marcar un encargo como atendido (o volver a abrirlo)
+    if (!ID_RE.test(body.id || "")) return json({ error: "id inválido" }, 400);
+    if (body.done !== 0 && body.done !== 1) return json({ error: "done inválido" }, 400);
+    await db.prepare(`UPDATE messages SET done = ?3, seq = ${MSG_SEQ_NEXT} WHERE space = ?1 AND id = ?2`).bind(space, body.id, body.done).run();
+    return json({ ok: true });
+  }
+
+  return json({ error: "no encontrado" }, 404);
 }
 
 export default {
@@ -260,6 +486,12 @@ export default {
       if (pathname === "/sync" && request.method === "PUT") return await handleSync(request, env);
       if (pathname === "/space/sync" && request.method === "POST") return await handleSpaceSync(request, env);
       if (pathname === "/space/delete" && request.method === "POST") return await handleSpaceDelete(request, env);
+      if ((pathname.startsWith("/call/") || pathname.startsWith("/msg/") || pathname === "/voice/token") && request.method === "POST") {
+        const body = await request.json().catch(() => null);
+        if (!body || !/^[0-9a-f]{64}$/.test(body.space || "")) return json({ error: "space inválido" }, 400);
+        if (tooMany("space:" + body.space, LIMITS.spacePerMinute)) return json({ error: "demasiadas peticiones" }, 429);
+        return await handleCalls(pathname, body, env);
+      }
       if (pathname === "/unsync" && request.method === "POST") {
         const { device } = await request.json().catch(() => ({}));
         if (!/^[A-Za-z0-9_-]{16,64}$/.test(device || "")) return json({ error: "device inválido" }, 400);
@@ -273,5 +505,5 @@ export default {
     }
   },
   async scheduled(event, env, ctx) { ctx.waitUntil(deliver(env)); },
-  _test: { encryptPayload, vapidHeader, getKeys, deliver, b64u, LIMITS, resetRate: () => hits.clear() },
+  _test: { encryptPayload, vapidHeader, getKeys, deliver, expireCalls, b64u, LIMITS, CALL, resetRate: () => hits.clear(), resetFcm: () => { fcmAuth = null; } },
 };
