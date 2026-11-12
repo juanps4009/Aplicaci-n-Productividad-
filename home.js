@@ -133,6 +133,7 @@ function renderHome() {
   el.innerHTML = `
     <div class="home">
       <p class="home-date">${esc(capital(d.toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
+      ${typeof claudeHomeStrip === "function" ? claudeHomeStrip() : ""}
       <section class="card home-day" aria-label="Tu día">
         <div class="home-day-top">
           <div class="ring" style="--day-ring: conic-gradient(var(--ind-mid) 0 ${a}%, var(--grn-mid) ${a}% ${b}%, var(--track) ${b}% 100%)" role="img" aria-label="${pct} por ciento del día hecho">

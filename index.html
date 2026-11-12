@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="tablero.css">
   <link rel="stylesheet" href="capture.css">
+  <link rel="stylesheet" href="calls.css">
 </head>
 <body>
   <!-- Modo widget de escritorio (#widget): solo lista de pendientes -->
@@ -22,6 +23,10 @@
   <header class="app-header">
     <h1 id="page-title" class="text-xl font-bold">Pendientes</h1>
     <div class="flex items-center">
+      <button id="open-claude" class="icon-btn" aria-label="Claude: mensajes y llamadas">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg>
+        <span id="claude-badge" class="badge hidden"></span>
+      </button>
       <button id="open-sync" class="icon-btn" aria-label="Sincronizar mis dispositivos">
         <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-1.2-8.84A6 6 0 1 0 5 13.5a3.5 3.5 0 0 0 .5 5.5z"/></svg>
         <span id="sync-badge" class="badge hidden"></span>
@@ -317,6 +322,37 @@
     </div>
   </div>
 
+  <!-- Claude: mensajes, encargos y llamadas por voz (calls.js) -->
+  <div id="claude-sheet" class="sheet-backdrop hidden">
+    <div class="sheet claude-sheet" role="dialog" aria-label="Claude">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold">Claude</h2>
+        <button id="close-claude" class="icon-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <div id="claude-setup"></div>
+      <ul id="claude-thread" class="claude-thread" aria-live="polite"></ul>
+      <p id="claude-error" class="claude-error" role="alert"></p>
+      <div id="claude-live" class="claude-live hidden" aria-live="polite">
+        <p id="claude-live-status" class="claude-live-status"></p>
+        <div id="claude-live-text" class="claude-live-text"></div>
+        <div class="flex gap-2">
+          <button id="claude-mute" class="btn-secondary flex-1 py-3" type="button">Silenciar</button>
+          <button id="claude-hangup" class="btn-hangup flex-1 py-3" type="button">Colgar</button>
+        </div>
+      </div>
+      <form id="claude-compose" class="claude-compose">
+        <label for="claude-input" class="sr-only">Mensaje para Claude</label>
+        <textarea id="claude-input" class="field" rows="2" maxlength="8000" placeholder="Escríbele a Claude o déjale un encargo…"></textarea>
+        <div class="flex gap-2">
+          <button type="submit" data-kind="msg" class="btn-secondary flex-1 py-3">Enviar</button>
+          <button type="submit" data-kind="encargo" class="btn-primary flex-1 py-3">Dejar encargo</button>
+        </div>
+      </form>
+      <button id="claude-call" class="btn-call w-full py-3" type="button">📞 Llamar a Claude (voz)</button>
+      <p class="muted text-xs claude-foot">Los encargos los atiende Claude en su próxima revisión y te contesta aquí. Todo va cifrado con tu código.</p>
+    </div>
+  </div>
+
   <script src="vendor/qrcode.js"></script>
   <script src="config.js"></script>
   <script src="reminders.js"></script>
@@ -331,5 +367,7 @@
   <script src="quickparse.js"></script>
   <script src="capture.js"></script>
   <script src="swipe.js"></script>
+  <script src="calllogic.js"></script>
+  <script src="calls.js"></script>
 </body>
 </html>
