@@ -126,6 +126,7 @@ export async function run(argv, env = {}) {
       `Celular para llamadas: ${s.devices ? `sí (${s.devices})` : "ninguno — en el widget de Android: Ajustes → «Activar llamadas»"}`,
       `Avisos (Firebase): ${s.push ? "listos" : "falta el secreto FCM_SERVICE_ACCOUNT en el Worker"}`,
       `Voz (Gemini Live): ${s.voice ? "lista" : "falta el secreto GEMINI_API_KEY en el Worker"}`,
+      `Encargos al instante: ${s.instant ? "activos (cada encargo del dueño despierta la rutina de Claude)" : "apagados; los atiende el repaso programado (opcional: secretos ROUTINE_FIRE_URL y ROUTINE_FIRE_TOKEN en el Worker)"}`,
     ].join("\n");
   }
 

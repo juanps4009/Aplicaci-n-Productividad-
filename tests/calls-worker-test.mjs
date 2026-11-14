@@ -17,7 +17,7 @@ const SA = { project_id: 'pendientes-test', client_email: 'fcm@pendientes-test.i
   private_key: `-----BEGIN PRIVATE KEY-----\n${pkcs8.match(/.{1,64}/g).join('\n')}\n-----END PRIVATE KEY-----\n` };
 
 // --- red simulada: OAuth de Google, FCM y Gemini
-const net = { oauth: 0, fcm: [], gemini: [], fcmStatus: () => 200, geminiStatus: 200 };
+const net = { oauth: 0, fcm: [], gemini: [], fire: [], fireStatus: 200, fireThrows: false, fcmStatus: () => 200, geminiStatus: 200 };
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url === SA.token_uri) {
@@ -38,6 +38,11 @@ globalThis.fetch = async (url, init = {}) => {
     assert.strictEqual(b.uses, 1); assert(Date.parse(b.expireTime) > Date.now() && Date.parse(b.newSessionExpireTime) > Date.now());
     return new Response(JSON.stringify({ name: 'auth_tokens/efimero123' }), { status: net.geminiStatus });
   }
+  if (/^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/[\w-]+\/fire$/.test(url)) {
+    net.fire.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    if (net.fireThrows) throw new Error('sin red');
+    return new Response('{"session_id":"s1"}', { status: net.fireStatus });
+  }
   throw new Error('red no simulada: ' + url);
 };
 
@@ -47,7 +52,7 @@ const space = 'a'.repeat(64), other = 'b'.repeat(64);
 const rows = (sql) => env.DB.raw.prepare(sql).all().map((x) => ({ ...x }));
 
 // ---- sin configurar: lo dice claro
-let r = await api('/call/status', { space }, { DB: env.DB }); assert.deepStrictEqual(r.body, { devices: 0, push: false, voice: false });
+let r = await api('/call/status', { space }, { DB: env.DB }); assert.deepStrictEqual(r.body, { devices: 0, push: false, voice: false, instant: false });
 r = await api('/call/new', { space, id: 'llamada0001', dir: 'out', invite: 'e1:x' }, { DB: env.DB }); assert.strictEqual(r.status, 503); assert.strictEqual(r.body.error, 'llamadas_no_configuradas');
 r = await api('/voice/token', { space, id: 'llamada0001' }, { DB: env.DB }); assert.strictEqual(r.body.error, 'voz_no_configurada');
 assert.strictEqual((await api('/call/status', { space: 'xyz' })).status, 400);
@@ -59,7 +64,7 @@ assert.strictEqual((await api('/call/device', { space, device: 'cel-juan-01', fc
 r = await api('/call/device', { space, device: 'cel-juan-01', fcm: 'fcm-token-del-celular-0001' }); assert(r.body.ok);
 await api('/call/device', { space, device: 'cel-juan-01', fcm: 'fcm-token-del-celular-0002' }); // actualizar no duplica
 assert.strictEqual(rows('SELECT * FROM call_devices').length, 1); assert.strictEqual(rows('SELECT fcm FROM call_devices')[0].fcm, 'fcm-token-del-celular-0002');
-assert.deepStrictEqual((await api('/call/status', { space })).body, { devices: 1, push: true, voice: true });
+assert.deepStrictEqual((await api('/call/status', { space })).body, { devices: 1, push: true, voice: true, instant: false });
 
 r = await api('/call/new', { space, id: 'llamada0001', dir: 'out', invite: 'e1:motivo-cifrado', urgent: true });
 assert.strictEqual(r.status, 200); assert.strictEqual(r.body.state, 'invited'); assert.strictEqual(r.body.sent, 1);
@@ -138,6 +143,33 @@ r = await api('/call/config', { space }, { ...env, FCM_GOOGLE_SERVICES: JSON.str
 assert.deepStrictEqual(r.body, { projectId: 'pendientes-test', senderId: '123456789', appId: '1:123456789:android:abc', apiKey: 'AIzaWidget' });
 assert.strictEqual((await api('/call/config', { space }, { ...env, FCM_GOOGLE_SERVICES: '{"client":[]}' })).status, 503);
 ok('el widget recibe la configuración pública de Firebase de su paquete (app.productividad.widget)');
+
+// ---- disparo instantáneo: un encargo del dueño despierta la rutina de Claude (con límites)
+const FIRE = 'https://api.anthropic.com/v1/claude_code/routines/trig_abc123/fire';
+const fenv = { ...env, ROUTINE_FIRE_URL: FIRE, ROUTINE_FIRE_TOKEN: 'sk-ant-oat01-prueba' };
+const errand = async (id, e = fenv, who = 'yo', kind = 'encargo') => (await api('/msg/send', { space, id, sender: who, kind, data: 'e1:secreto-cifrado' }, e)).body;
+const clearFire = () => env.DB.raw.prepare("DELETE FROM kv WHERE k LIKE 'lastfire:%'").run();
+assert.strictEqual((await api('/call/status', { space }, fenv)).body.instant, true);
+assert.strictEqual((await api('/call/status', { space }, { ...env, ROUTINE_FIRE_URL: 'https://malo.example/x', ROUTINE_FIRE_TOKEN: 't' })).body.instant, false); // solo la URL de la API de Anthropic
+assert.strictEqual((await errand('fuego000001', env)).fired, 'apagado'); assert.strictEqual(net.fire.length, 0);             // sin secretos: no hace nada
+let b = await errand('fuego000002'); assert.strictEqual(b.fired, 'enviado'); assert.strictEqual(net.fire.length, 1);
+assert.strictEqual(net.fire[0].url, FIRE); assert.strictEqual(net.fire[0].headers.Authorization, 'Bearer sk-ant-oat01-prueba');
+assert.strictEqual(net.fire[0].headers['anthropic-version'], '2023-06-01'); assert.strictEqual(net.fire[0].headers['anthropic-beta'], 'experimental-cc-routine-2026-04-01');
+assert.deepStrictEqual(Object.keys(net.fire[0].body), ['text']); assert(!JSON.stringify(net.fire[0]).includes('secreto')); assert(!JSON.stringify(net.fire[0]).includes(space)); // texto fijo: nada del contenido ni del código
+assert.strictEqual((await errand('fuego000003')).fired, 'espera'); assert.strictEqual(net.fire.length, 1);                      // enfriamiento de 3 min
+env.DB.raw.prepare("UPDATE kv SET v = ? WHERE k LIKE 'lastfire:%'").run(String(Date.now() - CALL.fireCooldownMs - 1000));
+assert.strictEqual((await errand('fuego000004')).fired, 'enviado'); assert.strictEqual(net.fire.length, 2);
+clearFire(); assert.strictEqual((await errand('fuego000005', fenv, 'claude', 'msg')).fired, 'no_aplica'); assert.strictEqual((await errand('fuego000006', fenv, 'yo', 'msg')).fired, 'no_aplica'); assert.strictEqual(net.fire.length, 2); // solo encargos del dueño
+net.fireStatus = 401; b = await errand('fuego000007'); assert.strictEqual(b.ok, true); assert.strictEqual(b.fired, 'rechazado');       // si Anthropic rechaza, el encargo igual queda guardado
+assert(env.DB.raw.prepare("SELECT 1 x FROM messages WHERE id = 'fuego000007'").get()); net.fireStatus = 200;
+clearFire(); net.fireThrows = true; b = await errand('fuego000008'); assert.strictEqual(b.ok, true); assert.strictEqual(b.fired, 'sin_red'); net.fireThrows = false; // sin red: tampoco se pierde
+let waited = []; worker._test.resetRate(); clearFire();                                                                         // en Cloudflare responde sin esperar (waitUntil)
+r = await worker.fetch(new Request('https://w.test/msg/send', { method: 'POST', body: JSON.stringify({ space, id: 'fuego000009', sender: 'yo', kind: 'encargo', data: 'e1:x' }) }), fenv, { waitUntil: (p) => waited.push(p) });
+assert.strictEqual((await r.json()).fired, 'enviado'); assert.strictEqual(waited.length, 1); await Promise.all(waited);
+env.DB.raw.prepare("INSERT OR REPLACE INTO quota (space, day, kind, n) VALUES (?1, ?2, 'fire', ?3)").run(space, new Date().toISOString().slice(0, 10), CALL.perDay.fire); clearFire();
+assert.strictEqual((await errand('fuego000010')).fired, 'limite');                                                              // tope diario
+env.DB.raw.prepare("DELETE FROM quota WHERE kind = 'fire'").run();
+ok('encargo del dueño → dispara la rutina de Claude (URL y encabezados correctos, texto fijo sin contenido); enfriamiento, tope diario, solo encargos del dueño; si falla el encargo se guarda igual');
 
 // ---- límites diarios y fallo de Gemini
 env.DB.raw.prepare("INSERT OR REPLACE INTO quota (space, day, kind, n) VALUES (?1, ?2, 'call', ?3)").run(space, new Date().toISOString().slice(0, 10), CALL.perDay.call);

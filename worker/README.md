@@ -91,6 +91,23 @@ Los menús de Firebase, Google AI Studio y Cloudflare cambian de nombre a veces;
 5. **En el celular:** instala el widget 2.0 y en la app «Pendientes (widget)» toca **Activar llamadas** (y, en Android 14+,
    **Permitir que suene con el celular bloqueado**).
 
+### Encargos al instante (opcional)
+
+Por defecto, un encargo que dejas por voz o por escrito lo atiende el repaso programado de Claude (cada hora como mucho).
+Para que **se atienda al momento**, el servidor puede despertar a Claude con el *disparador por API* de una rutina de claude.ai
+(no hace falta n8n ni nada más):
+
+1. En https://claude.ai/code/routines crea la rutina **«Atender encargos de Pendientes»** con las instrucciones de
+   `herramientas/TAREAS-PROGRAMADAS.md` (sección 1), en el entorno `avisos-productividad.juanrincon-oy.workers.dev` (el que tiene `PENDIENTES_CODIGO`).
+2. Edita la rutina → **Añadir disparador** → **API** → **Generar token**. Copia la **URL** (termina en `/fire`) y el **token**
+   (empieza con `sk-ant-oat01-`; se muestra una sola vez; si lo pierdes, genera otro y el anterior deja de servir).
+3. En Cloudflare → tu Worker → *Variables y secretos* → añade dos **Secretos**: `ROUTINE_FIRE_URL` (la URL) y `ROUTINE_FIRE_TOKEN` (el token).
+4. Vuelve a pegar `worker/index.js` si aún no tiene esta versión. Comprueba con `node herramientas/llamar.mjs estado`: debe decir «Encargos al instante: activos».
+
+Cada encargo abre una sesión de Claude y gasta de tu plan: el servidor lo limita a **uno cada 3 minutos y 24 al día**. El aviso es un texto fijo
+(«Hay un encargo nuevo…»): el contenido del encargo no sale del servidor. Si el disparo falla, el encargo queda guardado y lo atiende el repaso programado.
+La API de rutinas está marcada como *experimental* por Anthropic: si algún día cambia, el disparo deja de funcionar y se vuelve al repaso programado.
+
 **Límites por código:** 20 llamadas de Claude, 30 conversaciones de voz y 300 mensajes al día. El nivel gratuito de Gemini
 tiene sus propios límites (y Google puede usar esos datos para mejorar sus modelos); si se agotan, la llamada dice «la voz no respondió».
 
