@@ -45,6 +45,7 @@ final class GeminiLive {
     private AudioRecord recorder;
     private AudioTrack player;
     private Thread micThread, playThread;
+    private volatile long audioEndsAt = 0, lastAudioIn = 0;
     private final LinkedBlockingQueue<byte[]> playQueue = new LinkedBlockingQueue<>();
     private static final byte[] FLUSH = new byte[0];
 
@@ -88,8 +89,8 @@ final class GeminiLive {
                     ws.send(firstTurnJson);
                     listener.onReady();
                     break;
-                case AUDIO: playQueue.offer(e.audio); break;
-                case INTERRUPTED: playQueue.clear(); playQueue.offer(FLUSH); break;
+                case AUDIO: lastAudioIn = System.currentTimeMillis(); playQueue.offer(e.audio); break;
+                case INTERRUPTED: playQueue.clear(); playQueue.offer(FLUSH); audioEndsAt = 0; break;
                 case TRANSCRIPT: listener.onTranscript(e.who, e.text); break;
                 case TOOL_CALL: listener.onToolCall(e.id, e.name, e.args); break;
                 case GO_AWAY: break; // la sesión se acaba pronto; la llamada termina sola con MAX_MS
@@ -150,6 +151,8 @@ final class GeminiLive {
                     byte[] chunk = playQueue.poll(200, TimeUnit.MILLISECONDS);
                     if (chunk == null) continue;
                     if (chunk == FLUSH) { player.pause(); player.flush(); player.play(); continue; }
+                    long now = System.currentTimeMillis();
+                    audioEndsAt = Math.max(now, audioEndsAt) + chunk.length * 1000L / (2L * CallLogic.OUT_RATE);
                     player.write(chunk, 0, chunk.length);
                 } catch (InterruptedException e) {
                     return;
@@ -164,6 +167,12 @@ final class GeminiLive {
         if (!running) return;
         stop();
         listener.onClosed(reason);
+    }
+
+    /** true si ya no llega ni suena audio de Claude (sirve para colgar sin cortar la despedida). */
+    boolean silent() {
+        long now = System.currentTimeMillis();
+        return playQueue.isEmpty() && now - lastAudioIn > 1200 && now >= audioEndsAt;
     }
 
     /** Cierra todo (también se usa al colgar). */

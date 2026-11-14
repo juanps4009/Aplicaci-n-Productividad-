@@ -106,6 +106,12 @@ final class CallLogic {
                                 .put("prebuiltVoiceConfig", new JSONObject().put("voiceName", voice)))))
                 .put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(new JSONObject().put("text", instructions))))
                 .put("tools", tools)
+                // menos sensible a ruido/eco para que no corte a Claude a media frase
+                .put("realtimeInputConfig", new JSONObject().put("automaticActivityDetection", new JSONObject()
+                        .put("startOfSpeechSensitivity", "START_SENSITIVITY_LOW")
+                        .put("endOfSpeechSensitivity", "END_SENSITIVITY_LOW")
+                        .put("prefixPaddingMs", 300)
+                        .put("silenceDurationMs", 900)))
                 .put("inputAudioTranscription", new JSONObject())
                 .put("outputAudioTranscription", new JSONObject());
         return new JSONObject().put("setup", setup).toString();
