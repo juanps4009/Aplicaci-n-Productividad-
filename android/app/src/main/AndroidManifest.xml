@@ -44,6 +44,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="pendientes" android:host="link" />
             </intent-filter>
+            <!-- «Llamar a Claude» desde la app web abre pendientes://call -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="pendientes" android:host="call" />
+            </intent-filter>
         </activity>
 
         <!-- Puente invisible para abrir la app web en una tarea (ver OpenTaskActivity) -->

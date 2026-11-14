@@ -138,6 +138,7 @@ function renderClaude() {
 }
 
 async function openClaude() {
+  claudeNative.tried = false; // cada vez que se abre la hoja se vuelve a intentar la llamada nativa
   renderClaude();
   openSheet("#claude-sheet");
   const list = $("#claude-thread");
@@ -169,8 +170,26 @@ function renderClaudeLive() {
   $("#claude-mute").classList.toggle("active", L.muted);
 }
 
+/* En Android con el widget 2.0 instalado, «Llamar a Claude» abre su pantalla de llamada (auricular/altavoz, silencio, colgar,
+   y sigue con la pantalla apagada). Si el widget no está, la página sigue visible y la llamada se hace aquí en el navegador. */
+const claudeNative = {
+  android: typeof isAndroid !== "undefined" && isAndroid,
+  url: "intent://call#Intent;scheme=pendientes;package=app.productividad.widget;end",
+  wait: 1500,
+  open(url) { location.href = url; },
+};
+
 async function startClaudeCall() {
   if (claude.live || !syncLinked()) return;
+  if (claudeNative.android && !claudeNative.tried) {
+    claudeNative.tried = true; // un solo intento por apertura de la hoja: si no abre la app, se llama aquí mismo
+    claude.error = "";
+    $("#claude-call").disabled = true;
+    try { claudeNative.open(claudeNative.url); } catch { /* sin app: se llama en el navegador */ }
+    await new Promise((r) => setTimeout(r, claudeNative.wait));
+    $("#claude-call").disabled = false;
+    if (document.hidden) { claudeNative.tried = false; return; } // la app nativa tomó la llamada
+  }
   if (!navigator.mediaDevices || !window.WebSocket || !window.AudioContext) { claude.error = "Este navegador no permite llamadas de voz."; renderClaude(); return; }
   const L = claude.live = { status: "Pidiendo el micrófono…", turns: [], muted: false, id: "", ws: null, stream: null, mic: null, out: null, sources: [], playhead: 0, started: 0, ended: false };
   renderClaudeLive();
@@ -204,7 +223,7 @@ function onLiveEvent(L, e) {
     L.status = "En llamada"; L.started = Date.now();
     startLiveAudio(L);
     L.ws.send(JSON.stringify(CallLogic.firstTurn(false)));
-  } else if (e.kind === "audio") playLive(L, e.data);
+  } else if (e.kind === "audio") { L.lastAudioIn = Date.now(); playLive(L, e.data); }
   else if (e.kind === "interrupted") { for (const s of L.sources) { try { s.stop(); } catch { /* ya terminó */ } } L.sources = []; L.playhead = 0; }
   else if (e.kind === "transcript") CallLogic.addTranscript(L.turns, e.who, e.text);
   else if (e.kind === "tool") runLiveTool(L, e);
@@ -215,7 +234,7 @@ function onLiveEvent(L, e) {
 async function runLiveTool(L, e) {
   let result;
   try {
-    if (e.name === "colgar") { result = "Listo, la llamada termina."; setTimeout(() => endClaudeCall(""), 2500); }
+    if (e.name === "colgar") { result = "Listo, la llamada termina."; hangupWhenSilent(L, Date.now()); }
     else if (e.name === "dejar_encargo") {
       const text = String(e.args.texto || "").trim();
       if (!text) result = "Falta el texto del encargo.";
@@ -224,6 +243,16 @@ async function runLiveTool(L, e) {
     else result = "Herramienta desconocida.";
   } catch (err) { result = `No se pudo: ${err.message}`; }
   if (L.ws && L.ws.readyState === 1) L.ws.send(JSON.stringify(CallLogic.toolResponse(e.id, e.name, result)));
+}
+
+/* Cuelga cuando Claude terminó de despedirse (no a los 2,5 s fijos, que cortaba la frase a la mitad) */
+function hangupWhenSilent(L, since) {
+  setTimeout(() => {
+    if (L.ended) return;
+    const left = L.out ? Math.max(0, L.playhead - L.out.currentTime) : 0;
+    if (CallLogic.shouldHangup(Date.now() - since, Date.now() - (L.lastAudioIn || 0), left)) endClaudeCall("");
+    else hangupWhenSilent(L, since);
+  }, 400);
 }
 
 function startLiveAudio(L) {
@@ -238,6 +267,7 @@ function startLiveAudio(L) {
     L.ws.send(JSON.stringify(CallLogic.audioMessage(CallLogic.floatToB64(data))));
   };
   src.connect(proc); proc.connect(mute); mute.connect(L.mic.destination);
+  try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then((w) => { L.wake = w; if (L.ended) w.release(); }).catch(() => {}); } catch { /* sin soporte */ }
 }
 
 function playLive(L, b64) {
@@ -261,6 +291,7 @@ async function endClaudeCall(reason) {
   if (!L || L.ended) return;
   L.ended = true;
   clearTimeout(L.maxTimer);
+  try { if (L.wake) L.wake.release(); } catch { /* ya liberado */ }
   try { if (L.ws) L.ws.close(1000); } catch { /* ya cerrado */ }
   if (L.stream) L.stream.getTracks().forEach((tr) => tr.stop());
   for (const ctx of [L.mic, L.out]) { try { if (ctx) await ctx.close(); } catch { /* ya cerrado */ } }
@@ -312,7 +343,13 @@ function handleClaudeHash() {
 window.addEventListener("hashchange", handleClaudeHash);
 handleClaudeHash();
 
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshClaude(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  refreshClaude();
+  const L = claude.live; // al volver a la página el navegador puede haber suspendido el audio
+  if (L && !L.ended) for (const c of [L.mic, L.out]) { try { if (c && c.state === "suspended") c.resume(); } catch { /* sin soporte */ } }
+  if (L && !L.ended && L.stream && navigator.wakeLock && !L.wake) { try { navigator.wakeLock.request("screen").then((w) => { L.wake = w; }).catch(() => {}); } catch { /* sin soporte */ } }
+});
 setInterval(() => { if (!document.hidden && syncLinked()) refreshClaude(); }, 60000);
 setInterval(() => { if (!document.hidden && isClaudeOpen() && !claude.live) refreshClaude(); }, 8000);
 renderClaudeBadge();

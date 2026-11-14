@@ -49,6 +49,12 @@ await p.addInitScript(() => {
         this.emit({ toolCall: { functionCalls: [{ id: 't1', name: 'ver_pendientes', args: {} }] } });
         this.emit({ toolCall: { functionCalls: [{ id: 't2', name: 'dejar_encargo', args: { texto: 'Buscar 3 ofertas de traducción en Workana' } }] } });
       }, 20);
+      else if (m.toolResponse && m.toolResponse.functionResponses[0].name === 'colgar' && window.__farewell) {
+        const chunk = btoa(String.fromCharCode(...new Uint8Array(24000))); // 0,5 s de audio
+        window.__farewell.start = Date.now();
+        setTimeout(() => this.emit({ serverContent: { outputTranscription: { text: ' Hasta luego,' }, modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: chunk } }] } } }), 1800);
+        setTimeout(() => this.emit({ serverContent: { outputTranscription: { text: ' que tengas buen día.' }, modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: chunk } }] }, turnComplete: true } }), 3600);
+      }
       else if (m.toolResponse && m.toolResponse.functionResponses[0].name === 'dejar_encargo') setTimeout(() => {
         this.emit({ serverContent: { outputTranscription: { text: 'Listo, quedó guardado. ¡Chao!' }, turnComplete: true } });
         this.emit({ toolCall: { functionCalls: [{ id: 't3', name: 'colgar', args: {} }] } });
@@ -138,6 +144,36 @@ assert.deepStrictEqual(result.turns.map((t) => t.who), ['ia', 'yo', 'ia']);
 assert.strictEqual(result.turns[1].text, 'Dile a Claude que busque ofertas de traducción.');
 out = await tool('encargos'); assert(out.includes('Buscar 3 ofertas de traducción en Workana'));
 ok('llamar a Claude por voz: token temporal, setup en español, micrófono a 16 kHz, consulta de pendientes, encargo guardado, cuelga y la transcripción queda cifrada');
+
+// ---- la despedida larga NO se corta (antes se colgaba a los 2,5 s fijos)
+await p.evaluate(() => { window.__farewell = {}; window.__ws.sent.length = 0; });
+if (await p.locator('#claude-sheet.hidden').count()) await p.evaluate(() => openClaude());
+await p.click('#claude-call');
+await p.waitForFunction(() => window.__ws.sent.some((m) => m.toolResponse && m.toolResponse.functionResponses[0].name === 'colgar'), null, { timeout: 8000 });
+await p.waitForTimeout(3000); // pasó el viejo límite de 2,5 s y Claude aún se está despidiendo
+assert.strictEqual(await p.evaluate(() => !!claude.live), true, 'la llamada sigue abierta mientras Claude se despide');
+await p.waitForFunction(() => !claude.live, null, { timeout: 15000 });
+const tail = await p.evaluate(() => Date.now() - window.__farewell.start);
+assert(tail > 4000 && tail < 12000, 'colgó después de la despedida y sin esperar de más: ' + tail + ' ms');
+await p.waitForFunction(() => document.querySelectorAll('#claude-thread .msg').length > 0);
+const farewell = env.DB.raw.prepare("SELECT id, result FROM calls WHERE dir = 'in' AND state = 'ended' ORDER BY created_at DESC").all()[0];
+const said = JSON.parse(await Sync.decryptText(key, farewell.result, AAD.result(farewell.id))).turns.map((t) => t.text).join(' ');
+assert(said.includes('Hasta luego, que tengas buen día.'), 'la transcripción trae la despedida completa: ' + said);
+await p.evaluate(() => { window.__farewell = null; });
+ok('colgar espera a que Claude termine de despedirse (despedida de 3,6 s completa, sin cortarla a los 2,5 s)');
+
+// ---- en Android, «Llamar a Claude» abre la pantalla de llamada nativa; sin el widget, llama en el navegador
+await p.evaluate(() => { claudeNative.android = true; claudeNative.wait = 300; window.__native = []; window.__ws.sent.length = 0; window.__ws.url = ''; claudeNative.open = (u) => { window.__native.push(u); Object.defineProperty(document, 'hidden', { value: true, configurable: true }); }; });
+await p.evaluate(() => openClaude()); await p.click('#claude-call'); await p.waitForTimeout(700);
+assert.deepStrictEqual(await p.evaluate(() => window.__native), ['intent://call#Intent;scheme=pendientes;package=app.productividad.widget;end']);
+assert.strictEqual(await p.evaluate(() => !!claude.live), false, 'con la app nativa no se llama también en el navegador'); assert.strictEqual(await p.evaluate(() => window.__ws.url), '');
+await p.evaluate(() => { delete document.hidden; window.__native = []; claudeNative.open = (u) => { window.__native.push(u); }; }); // sin widget instalado: la página sigue visible
+await p.evaluate(() => openClaude()); await p.click('#claude-call');
+await p.waitForFunction(() => !!window.__ws.url, null, { timeout: 8000 });
+assert.strictEqual((await p.evaluate(() => window.__native)).length, 1);
+await p.evaluate(() => endClaudeCall('')); await p.waitForFunction(() => !claude.live);
+await p.evaluate(() => { claudeNative.android = false; });
+ok('en Android la web abre la llamada nativa (intent pendientes://call); sin widget instalado llama en el navegador');
 
 // ---- Atrás cierra la hoja; y #mensajes la abre (desde la notificación del widget)
 await p.goBack(); await p.waitForSelector('#claude-sheet.hidden', { state: 'attached' });

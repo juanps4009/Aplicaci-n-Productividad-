@@ -1,7 +1,7 @@
 /* Service worker: funciona sin conexión.
    Estrategia "red primero": si hay internet siempre carga la versión más nueva y la guarda;
    si no hay, usa la copia guardada. Sube CACHE si cambias la lista de archivos. */
-const CACHE = "productividad-v21";
+const CACHE = "productividad-v22";
 importScripts("sync.js"); // trae Sync (descifrado de los avisos)
 const FILES = ["./", "index.html", "styles.css", "tablero.css", "fonts/manrope.woff2", "app.js", "home.js", "config.js", "reminders.js", "sync.js", "richtext.js", "richedit.js", "routine.js", "work.js", "reading.js", "quickparse.js", "capture.js", "swipe.js", "capture.css", "calllogic.js", "calls.js", "calls.css", "vendor/qrcode.js", "manifest.webmanifest",
   "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];

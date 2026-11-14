@@ -145,6 +145,14 @@
     return out;
   }
 
+  /* «colgar» sin cortar la despedida: cuelga cuando ya pasó un mínimo, no llegó audio nuevo en un rato y no queda
+     audio por reproducir; con un tope por si algo falla. Misma regla que CallService.hangupWhenSilent (Android). */
+  const FAREWELL = { minMs: 1500, quietMs: 1200, maxMs: 20000 };
+  function shouldHangup(waitedMs, sinceAudioMs, playbackLeftSec) {
+    if (waitedMs >= FAREWELL.maxMs) return true;
+    return waitedMs >= FAREWELL.minMs && sinceAudioMs > FAREWELL.quietMs && playbackLeftSec <= 0.05;
+  }
+
   const ERRORS = {
     sin_celular: "No hay ningún celular con llamadas activadas.",
     llamadas_no_configuradas: "El servidor todavía no tiene las llamadas configuradas (Firebase).",
@@ -154,7 +162,7 @@
   };
 
   const api = { IN_RATE, OUT_RATE, MAX_TEXT, AAD, newId, mergeThread, messageText, unread, openErrands, instructions, tools, setupMessage,
-    textTurn, firstTurn, audioMessage, toolResponse, parse, addTranscript, resultBody, tasksForVoice, floatToB64, b64ToFloat, ERRORS };
+    textTurn, firstTurn, audioMessage, toolResponse, parse, addTranscript, resultBody, tasksForVoice, floatToB64, b64ToFloat, FAREWELL, shouldHangup, ERRORS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.CallLogic = api;
 })(typeof self !== "undefined" ? self : this);
