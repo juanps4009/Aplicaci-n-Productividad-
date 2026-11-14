@@ -14,7 +14,11 @@ Instrucciones listas para crear tareas programadas en claude.ai/code que trabaja
    llamadas activadas** en el celular. Sin esto, los mensajes funcionan igual, pero `llamar` responde que no hay celular.
 4. Comprobar: `node herramientas/llamar.mjs estado` y `node herramientas/rutina.mjs revisar`.
 
-## 1. Atender encargos (cada pocas horas; el dueño elige la frecuencia, mínimo cada hora)
+## 1. Atender encargos (al instante con el disparador por API; repaso de respaldo cada hora)
+
+Es **una sola rutina** con dos formas de arrancar: el disparador por API (cada encargo del dueño la despierta, ver
+`worker/README.md` → «Encargos al instante») y un horario cada hora como respaldo. Si no hay encargos, termina sin hacer nada.
+
 
 > Trabajas para el dueño de la app «Pendientes y Resúmenes» (repositorio en la carpeta actual). Ejecuta
 > `node herramientas/llamar.mjs encargos --json`. Si no hay encargos, termina sin hacer nada más.
@@ -26,7 +30,9 @@ Instrucciones listas para crear tareas programadas en claude.ai/code que trabaja
 > transcripción. Nunca envíes mensajes, apliques a ofertas ni gastes dinero en nombre del dueño sin su confirmación.
 > No imprimas ni guardes el código de sincronización.
 
-## 2. Comentario semanal (falta que el dueño diga el día y la hora)
+## 2. Comentario semanal (domingo a las 10:00 a. m., hora de Colombia; elegido por el dueño el 14 nov 2026)
+
+Se programa a las 9:42 (`CRON_TZ=America/Bogota 42 9 * * 0`) para que ya esté listo a las 10:00.
 
 > Ejecuta `node herramientas/rutina.mjs ver --json` (semana actual) y `node herramientas/rutina.mjs hoy`. Escribe un comentario
 > breve en español sobre cómo le fue la semana (qué cumplió, qué se le dificultó y una sugerencia concreta para la próxima),

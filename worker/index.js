@@ -278,11 +278,15 @@ async function handleSpaceDelete(request, env) {
      FCM_SERVICE_ACCOUNT  JSON de la cuenta de servicio de Firebase (privado)
      FCM_GOOGLE_SERVICES  contenido de google-services.json (público; el widget lo pide en /call/config)
      GEMINI_API_KEY       clave de Google AI Studio
+     ROUTINE_FIRE_URL / ROUTINE_FIRE_TOKEN  (opcional) disparador por API de la rutina de Claude que atiende los
+                          encargos: al guardar un encargo del dueño el servidor la dispara al instante (ver fireRoutine)
      GEMINI_LIVE_MODEL / GEMINI_VOICE  (opcional) modelo y voz de Gemini Live */
 const CALL = {
   ringMs: 40000,               // sin contestar → perdida
   maxMs: 20 * 60000,           // una llamada abierta se cierra sola
-  perDay: { call: 20, voice: 30, msg: 300 },
+  perDay: { call: 20, voice: 30, msg: 300, fire: 24 },
+  fireCooldownMs: 3 * 60000,   // como mucho un disparo de Claude cada 3 minutos por código
+  fireText: "Hay un encargo nuevo en la app de Pendientes. Atiéndelo con node herramientas/llamar.mjs encargos.",
   devicesPerSpace: 5,
   inviteChars: 20000, resultChars: 200000, msgChars: 20000,
   liveModel: "gemini-3.8-live", voice: "Charon",
@@ -373,15 +377,43 @@ function firebaseClientConfig(env) {
   } catch { return null; }
 }
 
+/* Despierta a Claude cuando el dueño deja un encargo: dispara la rutina de claude.ai con su disparador por API
+   (POST …/v1/claude_code/routines/<id>/fire con el token de esa rutina). El texto es fijo: el contenido del encargo
+   está cifrado y nunca sale de aquí. Con límites (cada 3 min y 24 al día por código) para no gastar el plan del dueño;
+   si falla, el encargo ya está guardado y lo atiende el repaso de respaldo. */
+const FIRE_URL_RE = /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/[A-Za-z0-9_-]+\/fire$/;
+const fireReady = (env) => !!(env.ROUTINE_FIRE_TOKEN && FIRE_URL_RE.test(env.ROUTINE_FIRE_URL || ""));
+
+async function fireRoutine(env, ctx, space, now) {
+  if (!fireReady(env)) return "apagado";
+  const db = env.DB, key = "lastfire:" + space;
+  const last = await db.prepare("SELECT v FROM kv WHERE k = ?1").bind(key).first();
+  if (last && now - Number(last.v) < CALL.fireCooldownMs) return "espera";
+  if (!(await useQuota(db, space, "fire", now))) return "limite";
+  await db.prepare("INSERT INTO kv (k, v) VALUES (?1, ?2) ON CONFLICT(k) DO UPDATE SET v = ?2").bind(key, String(now)).run();
+  const job = fetch(env.ROUTINE_FIRE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.ROUTINE_FIRE_TOKEN}`,
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "experimental-cc-routine-2026-04-01",
+    },
+    body: JSON.stringify({ text: CALL.fireText }),
+  }).then((res) => (res.ok ? "enviado" : "rechazado")).catch(() => "sin_red");
+  if (ctx && typeof ctx.waitUntil === "function") { ctx.waitUntil(job); return "enviado"; }
+  return await job;
+}
+
 const callOut = (c) => ({ id: c.id, dir: c.dir, state: c.state, urgent: c.urgent, invite: c.invite, result: c.result, createdAt: c.created_at, updatedAt: c.updated_at });
 
-async function handleCalls(pathname, body, env) {
+async function handleCalls(pathname, body, env, ctx) {
   const db = env.DB, now = Date.now();
   const { space } = body;
 
   if (pathname === "/call/status") { // ¿está todo listo para llamar? (sin datos personales)
     const { n } = await db.prepare("SELECT COUNT(*) AS n FROM call_devices WHERE space = ?1").bind(space).first();
-    return json({ devices: n, push: !!env.FCM_SERVICE_ACCOUNT, voice: !!env.GEMINI_API_KEY });
+    return json({ devices: n, push: !!env.FCM_SERVICE_ACCOUNT, voice: !!env.GEMINI_API_KEY, instant: fireReady(env) });
   }
 
   if (pathname === "/call/config") { // configuración PÚBLICA de Firebase para el widget (sale de google-services.json)
@@ -466,7 +498,9 @@ async function handleCalls(pathname, body, env) {
     await db.prepare(`INSERT INTO messages (space, id, seq, sender, kind, data, created_at) VALUES (?1, ?2, ${MSG_SEQ_NEXT}, ?3, ?4, ?5, ?6) ON CONFLICT(space, id) DO NOTHING`).bind(space, id, sender, kind, data, now).run();
     let push = { devices: 0, sent: 0 };
     if (sender === "claude") try { push = await fcmSend(env, space, { t: "msg", id }, "86400s"); } catch { /* el mensaje queda guardado igual */ }
-    return json({ ok: true, ...push });
+    let fired = "no_aplica";
+    if (sender === "yo" && kind === "encargo") try { fired = await fireRoutine(env, ctx, space, now); } catch { fired = "error"; }
+    return json({ ok: true, ...push, fired });
   }
 
   if (pathname === "/msg/list") {
@@ -493,7 +527,7 @@ async function handleCalls(pathname, body, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const { pathname } = new URL(request.url);
     const ip = request.headers.get("CF-Connecting-IP") || "local";
@@ -508,7 +542,7 @@ export default {
         const body = await request.json().catch(() => null);
         if (!body || !/^[0-9a-f]{64}$/.test(body.space || "")) return json({ error: "space inválido" }, 400);
         if (tooMany("space:" + body.space, LIMITS.spacePerMinute)) return json({ error: "demasiadas peticiones" }, 429);
-        return await handleCalls(pathname, body, env);
+        return await handleCalls(pathname, body, env, ctx);
       }
       if (pathname === "/unsync" && request.method === "POST") {
         const { device } = await request.json().catch(() => ({}));
