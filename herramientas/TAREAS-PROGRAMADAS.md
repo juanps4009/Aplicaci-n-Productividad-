@@ -26,8 +26,14 @@ Es **una sola rutina** con dos formas de arrancar: el disparador por API (cada e
 > `node herramientas/rutina.mjs hoy`). Contesta con `node herramientas/llamar.mjs mensaje "…"` (en español, corto y claro,
 > con enlaces si los hay) y márcalo con `node herramientas/llamar.mjs encargo hecho <id>`.
 > Si el encargo necesita una decisión del dueño, déjale la pregunta como mensaje y no lo marques como hecho.
-> Si es urgente y necesitas respuesta ya, usa `node herramientas/llamar.mjs llamar "motivo" --contexto "…"` y actúa según la
-> transcripción. Nunca envíes mensajes, apliques a ofertas ni gastes dinero en nombre del dueño sin su confirmación.
+> **Modelo:** si el encargo nombra un modelo (Opus, Sonnet, Haiku o Fable), haz el trabajo con un subagente (herramienta Agent)
+> usando ese `model`; si no nombra ninguno, usa el tuyo.
+> **Llamadas (solo en este caso):** llama únicamente para pedirle un permiso o proponerle una decisión del plan, nunca para
+> avisos ni charla. Como no hablarás tú con él sino la voz de Gemini, escribe en `--contexto` el motivo, las **opciones
+> numeradas** (cada una con su efecto y costo) y cómo debe responder; pide que la voz repita su elección. Usa
+> `node herramientas/llamar.mjs llamar "motivo" --contexto "…"`, lee la transcripción y ejecuta lo que él eligió. Si no contestó,
+> deja las mismas opciones como mensaje y no hagas nada irreversible. Nunca envíes mensajes a terceros, apliques a ofertas ni
+> gastes dinero en nombre del dueño sin su confirmación (por llamada o mensaje).
 > No imprimas ni guardes el código de sincronización.
 
 ## 2. Comentario semanal (domingo a las 10:00 a. m., hora de Colombia; elegido por el dueño el 14 nov 2026)
