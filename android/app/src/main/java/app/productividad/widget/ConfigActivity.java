@@ -109,6 +109,75 @@ public class ConfigActivity extends Activity {
         findViewById(R.id.save).setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { save(); }
         });
+
+        setupCalls();
+    }
+
+    /* ---------- Llamadas con Claude ---------- */
+    private static final int REQ_CALL_PERMS = 31;
+    private TextView callsStatus;
+    private View callsActivate, callsFullscreen, callsCall, callsOff;
+
+    private void setupCalls() {
+        callsStatus = findViewById(R.id.calls_status);
+        callsActivate = findViewById(R.id.calls_activate);
+        callsFullscreen = findViewById(R.id.calls_fullscreen);
+        callsCall = findViewById(R.id.calls_call);
+        callsOff = findViewById(R.id.calls_off);
+        callsActivate.setOnClickListener(v -> activateCalls());
+        callsFullscreen.setOnClickListener(v -> {
+            try { startActivity(Calls.fullScreenSettings(this)); } catch (Exception e) { startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName())); }
+        });
+        callsCall.setOnClickListener(v -> startActivity(new Intent(this, CallActivity.class).setAction(CallService.ACTION_OUTGOING)));
+        callsOff.setOnClickListener(v -> {
+            callsStatus.setText("Desactivando…");
+            Calls.deactivate(this, err -> runOnUiThread(() -> { renderCalls(); if (err != null) callsStatus.setText(err); }));
+        });
+        renderCalls();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (callsStatus != null) renderCalls();
+    }
+
+    private void renderCalls() {
+        boolean configured = TaskRepo.isConfigured(this), on = Calls.isEnabled(this);
+        boolean missingPerms = Calls.missingRuntimePermissions(this).length > 0;
+        if (!configured) callsStatus.setText("Primero guarda tu código arriba.");
+        else if (!on) callsStatus.setText("Desactivadas en este celular.");
+        else if (missingPerms) callsStatus.setText("Activadas, pero falta dar permiso de micrófono o de notificaciones.");
+        else if (Calls.needsFullScreenPermission(this)) callsStatus.setText("Activadas ✓ Falta un permiso para que la llamada aparezca con el celular bloqueado.");
+        else callsStatus.setText("Activadas ✓ Claude ya puede llamarte.");
+        callsActivate.setVisibility(configured && (!on || missingPerms) ? View.VISIBLE : View.GONE);
+        ((TextView) callsActivate).setText(on ? "Dar permisos" : "Activar llamadas");
+        callsFullscreen.setVisibility(configured && on && Calls.needsFullScreenPermission(this) ? View.VISIBLE : View.GONE);
+        callsCall.setVisibility(configured ? View.VISIBLE : View.GONE);
+        callsOff.setVisibility(on ? View.VISIBLE : View.GONE);
+    }
+
+    private void activateCalls() {
+        String[] missing = Calls.missingRuntimePermissions(this);
+        if (missing.length > 0) { requestPermissions(missing, REQ_CALL_PERMS); return; }
+        callsStatus.setText("Activando…");
+        callsActivate.setEnabled(false);
+        Calls.activate(this, err -> runOnUiThread(() -> {
+            callsActivate.setEnabled(true);
+            renderCalls();
+            if (err != null) callsStatus.setText(err);
+            else Toast.makeText(this, "Llamadas activadas ✓", Toast.LENGTH_LONG).show();
+        }));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        if (requestCode != REQ_CALL_PERMS) return;
+        if (Calls.missingRuntimePermissions(this).length > 0) {
+            callsStatus.setText("Sin permiso de micrófono y notificaciones no se pueden recibir llamadas. Puedes darlos en Ajustes → Apps → Pendientes (widget) → Permisos.");
+            return;
+        }
+        activateCalls();
     }
 
     /** Marca la tarjeta elegida y muestra el campo de dirección solo para el servidor propio. */

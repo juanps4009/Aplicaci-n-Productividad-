@@ -18,8 +18,8 @@ android {
         applicationId 'app.productividad.widget'
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName '1.2'
+        versionCode 4
+        versionName '2.0'
         buildConfigField 'String', 'DEFAULT_SERVER', "\"${defaultServer}\""
     }
 
@@ -47,4 +47,10 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Llamadas con Claude (2.0): avisos de Firebase para que suene con el celular bloqueado, y WebSocket para la voz (Gemini Live)
+    implementation 'com.google.firebase:firebase-messaging:24.1.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 }

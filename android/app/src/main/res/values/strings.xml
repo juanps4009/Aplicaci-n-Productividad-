@@ -7,4 +7,6 @@
     <string name="widget_title">Pendientes</string>
     <string name="widget_empty_unconfigured">Toca aquí para conectar el widget con tu servidor</string>
     <string name="widget_empty">No hay tareas pendientes (o no hay conexión todavía). Toca ↻ para actualizar.</string>
+    <string name="shortcut_call">Llamar a Claude</string>
+    <string name="shortcut_call_long">Llamar a Claude (voz)</string>
 </resources>

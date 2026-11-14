@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.21.3-beta";
+const APP_VERSION = "0.22.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -490,6 +490,7 @@ function cerrarCapa(id) {
   else if (id === "#work-sheet") closeWorkSheet();
   else if (id === "#work-status") { closeSheet(id); workStatusId = null; }
   else if (id === "#chapter-sheet") closeChapterSheet();
+  else if (id === "#claude-sheet") { if (typeof endClaudeCall === "function") endClaudeCall(""); closeSheet(id); } // Atrás durante una llamada: cuelga
   else closeSheet(id);
   soltarCapa(id); // por si la función de cierre no lo hizo
 }

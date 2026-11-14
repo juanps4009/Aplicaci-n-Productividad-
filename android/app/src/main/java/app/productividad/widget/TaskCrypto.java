@@ -34,6 +34,22 @@ final class TaskCrypto {
         return hmac(prk, block);
     }
 
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    /** Cifra como la app web: "e1:" + base64url(iv[12] + AES-GCM) con `aad` como datos autenticados. */
+    static String encrypt(byte[] key, String text, String aad) throws Exception {
+        byte[] iv = new byte[12];
+        RANDOM.nextBytes(iv);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+        cipher.updateAAD(aad.getBytes(StandardCharsets.UTF_8));
+        byte[] ct = cipher.doFinal(text.getBytes(StandardCharsets.UTF_8));
+        byte[] raw = new byte[12 + ct.length];
+        System.arraycopy(iv, 0, raw, 0, 12);
+        System.arraycopy(ct, 0, raw, 12, ct.length);
+        return "e1:" + Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+    }
+
     /** Texto descifrado, o null si no se puede (clave distinta o dato alterado). Sin prefijo "e1:" se devuelve tal cual (formato antiguo). */
     static String decrypt(byte[] key, String data, String aad) {
         if (data == null || !data.startsWith("e1:")) return data;

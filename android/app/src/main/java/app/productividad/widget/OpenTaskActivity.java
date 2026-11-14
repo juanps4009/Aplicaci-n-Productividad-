@@ -13,12 +13,15 @@ import android.os.Bundle;
 public class OpenTaskActivity extends Activity {
 
     static final String EXTRA_TASK_ID = "taskId";
+    static final String EXTRA_HASH = "hash"; // abrir la app en una sección (por ejemplo «mensajes»)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         String id = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_TASK_ID);
-        String url = TaskRepo.appUrl(this) + (id == null || id.isEmpty() ? "" : "#task=" + Uri.encode(id));
+        String hash = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_HASH);
+        String url = TaskRepo.appUrl(this) + (id != null && !id.isEmpty() ? "#task=" + Uri.encode(id)
+                : hash != null && !hash.isEmpty() ? "#" + Uri.encode(hash) : "");
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         } catch (ActivityNotFoundException ignored) {

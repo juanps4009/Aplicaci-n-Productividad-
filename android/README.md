@@ -24,6 +24,20 @@ Luego copia tu código en la app web (Ajustes → Sincronizar) y toca **Pegar**.
 
 **Para el dueño:** el APK lo compila GitHub solo al cambiar la carpeta `android/` y lo deja en *Releases* (etiqueta `widget-latest`, archivo `pendientes-widget.apk`). El servidor «de la app» que usa el widget sale de `server` en `config.js` (se lee al compilar). El enlace directo de descarga está en `widgetDownload` de `config.js`.
 
+## Llamadas con Claude (versión 2.0)
+
+Claude puede **llamarte como una llamada normal**: suena aunque el celular esté bloqueado, contestas y te explica por voz
+para qué llama (habla una IA de voz gratuita, Gemini Live, con lo que Claude le dejó). Al colgar, Claude recibe la conversación.
+También puedes **llamar tú**: pregúntale por tus pendientes o déjale un encargo; Claude lo atiende en su próxima revisión.
+
+**Activarlas (una vez):** abre la app «Pendientes (widget)» → *Llamadas con Claude* → **Activar llamadas** y acepta los
+permisos (micrófono y notificaciones). En Android 14 o más nuevo aparece otro botón, **Permitir que suene con el celular
+bloqueado**: tócalo y activa el permiso. Para llamar: el botón verde **Llamar a Claude**, o mantén pulsado el icono de la app.
+
+**Para el dueño (una sola vez, en Firebase y Cloudflare):** ver `worker/README.md`, sección «Llamadas con Claude».
+El celular no guarda ninguna clave: la configuración pública de Firebase la da el servidor (`/call/config`) y la voz usa
+un token temporal de un solo uso (`/voice/token`). La versión de pruebas de cada rama sale en la Release `widget-pruebas`.
+
 ## Cómo se usa
 
 - Se ven solo tareas **sin completar**: primero las vencidas, luego por fecha, y las que no tienen fecha al final (con la misma prioridad que en la app).
