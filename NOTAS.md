@@ -1,7 +1,7 @@
 # Notas para continuar el proyecto (para Claude, en la nube o en el computador del dueño)
 
 Lee esto primero. Resume qué es el proyecto, cómo está armado, qué quedó hecho, qué falta y cómo probar.
-Última puesta al día: **12 nov 2026**, sobre la versión **0.21.3-beta** (commit `1796c2c`). Antes (7 oct) el estado era 0.18. El §4 dice qué quedó hecho y probado, el §5 qué falta, y el §9 qué cosas existen **solo en su computador** y una sesión en la nube no tiene. **Si algo de estas notas contradice el código, manda el código** (`APP_VERSION` en `app.js`, `git log`).
+Última puesta al día: **14 nov 2026**, sobre la versión **0.22.0-beta** (llamadas con Claude; antes: 0.21.3 el 12 nov). Antes (7 oct) el estado era 0.18. El §4 dice qué quedó hecho y probado, el §5 qué falta, y el §9 qué cosas existen **solo en su computador** y una sesión en la nube no tiene. **Si algo de estas notas contradice el código, manda el código** (`APP_VERSION` en `app.js`, `git log`).
 
 ## 1. Qué es y qué quiere el dueño
 
@@ -46,7 +46,7 @@ Preferencias del dueño (respétalas): todo **gratis**; interfaz **simple y limp
 **Bloque 5:** guía del dueño en `worker/README.md` («Llamadas con Claude»: Firebase con el paquete `app.productividad.widget`, secretos `FCM_GOOGLE_SERVICES`, `FCM_SERVICE_ACCOUNT`, `GEMINI_API_KEY`, volver a pegar el Worker); `privacidad.html` explica Firebase y que la voz va a Gemini (Google); instrucciones listas para las tareas programadas en `herramientas/TAREAS-PROGRAMADAS.md` (atender encargos, comentario semanal, radar). Las tareas **no se han creado**: faltan el día y la hora del comentario, `PENDIENTES_CODIGO` en el entorno y que el entorno llegue al Worker. Ojo: las sesiones en la nube reciben **403** del proxy al abrir el Worker; hay que permitir su dirección en el entorno.
 - **Windows**: `escritorio/Crear-acceso-directo.cmd` (+ `.url`, `LEEME.txt`, `icons/icon.ico`).
 
-## 4. Estado actual (versión `0.22.0-beta` en la rama `claude/hopeful-sagan-nvsdya`, PR #4 sin fusionar; Pages sigue en `0.21.3-beta`)
+## 4. Estado actual (versión `0.22.0-beta`, ver `APP_VERSION` en `app.js`; PR #4 fusionado el 14 nov 2026 a la rama que publica Pages)
 
 **Versiones hechas desde la 0.18** (todas con pruebas en `tests/`; caché del service worker `productividad-v19`):
 - **0.19.1 / 0.19.2** (29 oct): widget de escritorio (`#widget`), controlador de capas con botón Atrás, aviso de `localStorage` lleno y demás arreglos (ver §3).
@@ -110,3 +110,11 @@ Códigos de sincronización de personas, contraseñas, tokens. La dirección del
 - **Su navegador Brave** (con la extensión de Claude): sirve para correr las pruebas de navegador sin descargar Chromium (`CHROMIUM_PATH` apuntando a `brave.exe`) y sería la vía para ver Workana con su sesión. En la nube las pruebas de navegador necesitan `npx playwright install chromium`, y `python -m http.server 8123` o cualquier servidor estático en la raíz.
 - **Accesos directos e iconos** de su escritorio (`Pictures\IconosApps`) y las tareas programadas locales (aún no hay ninguna).
 - En Windows, `npm run unit`/`npm run e2e` funcionan; si se usa PowerShell 5.1 y se escriben archivos con acentos desde scripts, guardar en UTF-8 sin BOM (hubo comentarios dañados en `styles.css` por eso).
+
+## 10. Llamadas: estado real a 14 nov 2026
+
+- **Configurado por el dueño:** Firebase (`pendientes-claude`), secretos `FCM_GOOGLE_SERVICES`, `FCM_SERVICE_ACCOUNT` y `GEMINI_API_KEY` en el Worker, y Worker con el código nuevo (`/call/status` responde `push:true, voice:true`).
+- **Confirmado en su celular:** widget 2.0 instalado, «Activar llamadas» y «Llamar a Claude» con voz funcionan; dejó un encargo por voz.
+- **Fusionado:** PR #4 → la app 0.22 (botón de Claude, hilo, encargos) y el widget 2.0 (ahora también en la Release `widget-latest`).
+- **Falta:** `PENDIENTES_CODIGO` en el entorno de Claude en la nube (sin ella `llamar.mjs` no funciona; en una sesión nueva), leer el primer encargo, probar que Claude lo llame con el celular bloqueado, las tareas programadas (día y hora del comentario semanal, frecuencia de encargos), el radar de empleos (Workana, inglés, muestras) y push reales de recordatorios.
+- Esta sesión no llega a `juanps4009.github.io` (el proxy lo bloquea): el despliegue de Pages se verifica con la API de Actions.
