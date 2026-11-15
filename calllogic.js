@@ -145,6 +145,18 @@
     return out;
   }
 
+  /* «colgar» sin cortar la despedida. Gemini a veces se despide ANTES de usar colgar y a veces DESPUÉS (y tarda en
+     empezar). Regla: nunca mientras llega o suena audio; si después de colgar llegó voz, esperar a que ese turno termine;
+     si no llegó nada, esperar un poco por si empieza a despedirse; y un tope por si algo falla.
+     Misma regla que CallLogic.shouldHangup (Android). */
+  const FAREWELL = { minMs: 1500, quietMs: 1200, noReplyMs: 4000, maxMs: 20000 };
+  function shouldHangup(waitedMs, sinceAudioMs, playbackLeftSec, turnDone, audioAfter) {
+    if (waitedMs >= FAREWELL.maxMs) return true;
+    if (sinceAudioMs <= FAREWELL.quietMs || playbackLeftSec > 0.05) return false;
+    if (audioAfter) return !!turnDone && waitedMs >= FAREWELL.minMs;
+    return waitedMs >= FAREWELL.noReplyMs;
+  }
+
   const ERRORS = {
     sin_celular: "No hay ningún celular con llamadas activadas.",
     llamadas_no_configuradas: "El servidor todavía no tiene las llamadas configuradas (Firebase).",
@@ -154,7 +166,7 @@
   };
 
   const api = { IN_RATE, OUT_RATE, MAX_TEXT, AAD, newId, mergeThread, messageText, unread, openErrands, instructions, tools, setupMessage,
-    textTurn, firstTurn, audioMessage, toolResponse, parse, addTranscript, resultBody, tasksForVoice, floatToB64, b64ToFloat, ERRORS };
+    textTurn, firstTurn, audioMessage, toolResponse, parse, addTranscript, resultBody, tasksForVoice, floatToB64, b64ToFloat, FAREWELL, shouldHangup, ERRORS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.CallLogic = api;
 })(typeof self !== "undefined" ? self : this);

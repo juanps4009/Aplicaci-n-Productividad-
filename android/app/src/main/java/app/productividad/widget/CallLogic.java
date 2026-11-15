@@ -20,6 +20,17 @@ final class CallLogic {
 
     static final int IN_RATE = 16000;   // micrófono → Gemini
     static final int OUT_RATE = 24000;  // Gemini → altavoz
+
+    /* «colgar» sin cortar la despedida (misma regla que calllogic.js): nunca mientras llega o suena audio; si después
+       de colgar llegó voz, esperar a que ese turno termine; si no llegó nada, esperar un poco; tope por si algo falla. */
+    static final long HANG_MIN_MS = 1500, HANG_QUIET_MS = 1200, HANG_NO_REPLY_MS = 4000, HANG_MAX_MS = 20000;
+
+    static boolean shouldHangup(long waitedMs, long sinceAudioMs, long playbackLeftMs, boolean turnDone, boolean audioAfter) {
+        if (waitedMs >= HANG_MAX_MS) return true;
+        if (sinceAudioMs <= HANG_QUIET_MS || playbackLeftMs > 50) return false;
+        if (audioAfter) return turnDone && waitedMs >= HANG_MIN_MS;
+        return waitedMs >= HANG_NO_REPLY_MS;
+    }
     static final long RING_MS = 40000;  // igual que el servidor
     static final long MAX_MS = 14 * 60000; // Gemini corta las sesiones de solo audio a los 15 min
 

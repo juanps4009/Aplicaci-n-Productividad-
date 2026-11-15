@@ -111,4 +111,13 @@ assert.strictEqual(await run(['hilo'], other), 'Todavía no hay mensajes.');
 const everything = [await cli('hilo'), await cli('estado'), await cli('encargos', '--todos')].join('\n');
 assert(!everything.includes(code) && !everything.includes(Sync.formatCode(code)));
 ok('otro código no ve nada; el código nunca aparece en la salida');
+// habilidad para Claude Code local (la instala escritorio/Activar-llamadas-Claude.cmd con la ruta real)
+const { readFileSync } = await import('node:fs');
+const skill = readFileSync(new URL('../herramientas/claude-local/SKILL.md', import.meta.url), 'utf8');
+assert(/^---\nname: llamar-al-dueno\ndescription: .+\n---\n/.test(skill));
+assert(skill.includes('node "{{LLAMAR}}"') && skill.includes('--contexto') && skill.includes('mensaje'));
+const cmd = readFileSync(new URL('../escritorio/Activar-llamadas-Claude.cmd', import.meta.url), 'utf8');
+assert(cmd.includes('\r\n') && cmd.includes('claude-local\\SKILL.md') && cmd.includes('{{LLAMAR}}') && cmd.includes('-AsSecureString'));
+assert(!/codigo.txt.*(type|more|echo %)/i.test(cmd.replace(/echo .*codigo.txt.*/gi, '')));
+ok('habilidad local: nombre, ruta a rellenar y el instalador guarda el código sin mostrarlo');
 console.log('todas las pruebas de llamar.mjs pasan');

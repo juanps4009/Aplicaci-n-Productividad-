@@ -38,6 +38,12 @@ public class ConfigActivity extends Activity {
 
         // Abierto desde el botón de la app web: guardar lo recibido y terminar
         Uri link = getIntent() == null ? null : getIntent().getData();
+        if (link != null && "pendientes".equals(link.getScheme()) && "call".equals(link.getHost())) {
+            // «Llamar a Claude» desde la app web (pendientes://call): abre la pantalla de llamada con altavoz, silencio y colgar
+            startActivity(new Intent(this, CallActivity.class).setAction(CallService.ACTION_OUTGOING));
+            finish();
+            return;
+        }
         if (link != null && "pendientes".equals(link.getScheme())) {
             Toast.makeText(this, applyLink(link)
                     ? "Widget conectado ✓ Ahora mantén pulsada tu pantalla de inicio → Widgets → Pendientes."

@@ -195,7 +195,9 @@ public class CallService extends Service {
                 try {
                     if ("colgar".equals(name)) {
                         result = "Listo, la llamada termina.";
-                        hangupWhenSilent(System.currentTimeMillis()); // deja terminar la despedida
+                        GeminiLive gl = live;
+                        if (gl != null) gl.markHangup();
+                        main.post(CallService.this::hangupWhenSilent); // deja terminar la despedida
                     } else if ("dejar_encargo".equals(name)) {
                         String text = args.optString("texto", "").trim();
                         if (text.isEmpty()) result = "Falta el texto del encargo.";
@@ -226,14 +228,13 @@ public class CallService extends Service {
         endCall(null, "Rechazaste la llamada.");
     }
 
-    /** Cuelga cuando Claude terminó de hablar (mínimo 1,5 s, máximo 20 s). */
-    private void hangupWhenSilent(long since) {
+    /** Cuelga cuando Claude terminó de despedirse (CallLogic.shouldHangup, con tope de 20 s). */
+    private void hangupWhenSilent() {
         main.postDelayed(() -> {
             GeminiLive l = live;
-            long waited = System.currentTimeMillis() - since;
-            if (l == null || l.silent() && waited >= 1500 || waited >= 20000) hangup();
-            else hangupWhenSilent(since);
-        }, 500);
+            if (l == null || l.readyToHang()) hangup();
+            else hangupWhenSilent();
+        }, 400);
     }
 
     void hangup() {

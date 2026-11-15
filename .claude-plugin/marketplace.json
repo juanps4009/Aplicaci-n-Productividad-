@@ -1,0 +1,5 @@
+{
+  "name": "pendientes",
+  "owner": { "name": "Pendientes y Resúmenes" },
+  "plugins": [{ "name": "llamame", "source": "./herramientas/claude-local/llamame", "description": "Interruptor «Llámame»: Claude te llama al celular cuando necesita tu permiso." }]
+}

@@ -45,7 +45,8 @@ final class GeminiLive {
     private AudioRecord recorder;
     private AudioTrack player;
     private Thread micThread, playThread;
-    private volatile long audioEndsAt = 0, lastAudioIn = 0;
+    private volatile long audioEndsAt = 0, lastAudioIn = 0, hangSince = 0;
+    private volatile boolean hangAudio, hangTurn;
     private final LinkedBlockingQueue<byte[]> playQueue = new LinkedBlockingQueue<>();
     private static final byte[] FLUSH = new byte[0];
 
@@ -89,7 +90,8 @@ final class GeminiLive {
                     ws.send(firstTurnJson);
                     listener.onReady();
                     break;
-                case AUDIO: lastAudioIn = System.currentTimeMillis(); playQueue.offer(e.audio); break;
+                case AUDIO: lastAudioIn = System.currentTimeMillis(); if (hangSince > 0) hangAudio = true; playQueue.offer(e.audio); break;
+                case TURN_COMPLETE: if (hangSince > 0 && hangAudio) hangTurn = true; break;
                 case INTERRUPTED: playQueue.clear(); playQueue.offer(FLUSH); audioEndsAt = 0; break;
                 case TRANSCRIPT: listener.onTranscript(e.who, e.text); break;
                 case TOOL_CALL: listener.onToolCall(e.id, e.name, e.args); break;
@@ -169,10 +171,16 @@ final class GeminiLive {
         listener.onClosed(reason);
     }
 
-    /** true si ya no llega ni suena audio de Claude (sirve para colgar sin cortar la despedida). */
-    boolean silent() {
+    /** Claude usó «colgar»: desde ahora se mide la despedida. */
+    void markHangup() {
+        if (hangSince == 0) hangSince = System.currentTimeMillis();
+    }
+
+    /** true cuando Claude ya terminó de despedirse (ver CallLogic.shouldHangup). */
+    boolean readyToHang() {
         long now = System.currentTimeMillis();
-        return playQueue.isEmpty() && now - lastAudioIn > 1200 && now >= audioEndsAt;
+        long left = playQueue.isEmpty() ? Math.max(0, audioEndsAt - now) : 1000;
+        return CallLogic.shouldHangup(now - hangSince, now - lastAudioIn, left, hangTurn, hangAudio);
     }
 
     /** Cierra todo (también se usa al colgar). */
