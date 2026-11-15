@@ -102,10 +102,15 @@ body {
 
 /* ---------- Pendientes ---------- */
 #task-form.card { box-shadow: var(--shadow); }
+/* Cada grupo es una sola tarjeta; las tareas son filas separadas por una línea fina */
+.group-list { gap: 0; background: var(--surface); border: 1px solid var(--card-line); border-radius: var(--radius-lg); }
 .task-item {
-  border: 1px solid var(--card-line); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  border: 0; border-top: 1px solid var(--border); border-radius: 0; box-shadow: none;
   padding: 0.7rem 0.4rem 0.7rem 0.85rem; transition: opacity var(--dur-base);
 }
+.group-list > .task-item:first-child { border-top: 0; border-top-left-radius: calc(var(--radius-lg) - 1px); border-top-right-radius: calc(var(--radius-lg) - 1px); }
+.group-list > .task-item:last-child { border-bottom-left-radius: calc(var(--radius-lg) - 1px); border-bottom-right-radius: calc(var(--radius-lg) - 1px); }
+.style-border .task-item { border-left: 3px solid var(--prio, var(--border)); }
 .task-item input[type="checkbox"] {
   -webkit-appearance: none; appearance: none; margin: 0; cursor: pointer;
   width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
@@ -218,7 +223,7 @@ body {
 .book-card .rt { background-clip: padding-box; }
 
 /* ---------- Inicio ---------- */
-.home { display: grid; gap: 1rem; }
+.home { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .home-date { font-size: var(--text-sm); font-weight: 700; color: var(--muted); margin-top: -0.4rem; }
 .home-day { padding: 1.15rem; display: grid; gap: 1rem; }
 .home-day-top { display: flex; align-items: center; gap: 1.1rem; }
@@ -254,33 +259,22 @@ body {
 .home-task.done b { text-decoration: line-through; color: var(--muted); }
 .home-empty { font-size: var(--text-sm); color: var(--muted); padding: 0.4rem 0; }
 
-.home-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
-.tile {
-  display: flex; flex-direction: column; gap: 0.6rem; min-height: 150px; padding: 0.95rem; text-align: left;
-  background: var(--surface); border: 1px solid var(--card-line); border-radius: var(--radius-lg); box-shadow: var(--shadow);
-  transition: transform var(--dur-fast);
+/* Áreas del Inicio: una fila por área, separadas por una línea fina */
+.home-areas { display: grid; padding: 0.25rem 1rem; }
+.area {
+  display: grid; grid-template-columns: 28px auto minmax(0, 1fr) 8px; align-items: center; gap: 0.75rem;
+  min-height: 56px; padding: 0.5rem 0; text-align: left; border-top: 1px solid var(--border);
 }
-.tile:active { transform: scale(0.98); }
-.tile-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.tile-ico { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; background: var(--tbg); color: var(--tfg); }
-.tile-ico svg { width: 20px; height: 20px; }
-.tile-name { font-size: var(--text-xs); font-weight: 800; color: var(--muted); text-align: right; }
-.tile .home-big { font-size: var(--text-xl); font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; overflow-wrap: anywhere; }
-.tile .home-big.sm { font-size: var(--text-lg); line-height: 1.25; }
-.tile p { font-size: var(--text-sm); color: var(--muted); line-height: 1.35; }
-.tile p.hot { color: var(--fire); font-weight: 700; }
-.tile .bar, .tile .wk-stack { margin-top: auto; }
-.t-tasks { --tbg: var(--ind-bg); --tfg: var(--ind); --fill: var(--ind-mid); }
-.t-routine { --tbg: var(--fire-bg); --tfg: var(--fire); }
-.t-work { --tbg: var(--amb-bg); --tfg: var(--amb); --fill: var(--amb-mid); }
-.t-books { --tbg: var(--ros-bg); --tfg: var(--ros); --fill: var(--ros-mid); }
-.mini-week { display: flex; justify-content: space-between; margin-top: auto; }
-.mini-week span { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: var(--text-xs); font-weight: 800; color: var(--muted); }
-.mini-week i { width: 13px; height: 13px; border-radius: 50%; background: var(--track); }
-.mini-week .d-full i { background: var(--grn-mid); }
-.mini-week .d-partial i { background: var(--grn-bg); box-shadow: inset 0 0 0 2px var(--grn-mid); }
-.mini-week .d-miss i { background: var(--fire-bg); }
-.mini-week .d-today i { background: transparent; box-shadow: inset 0 0 0 2px var(--grn-mid); }
+.area:first-child { border-top: 0; }
+.area-ico { width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; background: var(--tbg); color: var(--tfg); }
+.area-ico svg { width: 16px; height: 16px; }
+.area-name { font-size: var(--text-base); font-weight: 700; }
+.area-info { font-size: var(--text-sm); color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-info .hot { font-style: normal; font-weight: 700; color: var(--high); }
+.area-book { color: var(--text); }
+.area::after { content: ""; width: 7px; height: 7px; border-top: 2px solid var(--faint); border-right: 2px solid var(--faint); transform: rotate(45deg); }
+.area:active .area-name { color: var(--accent); }
+.home .claude-strip { margin: 0; }
 
 .home-week { padding: 1.1rem; display: grid; gap: 0.9rem; }
 .home-week-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
@@ -332,16 +326,26 @@ body {
   .nav-btn { flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 0.75rem; min-height: 46px; padding: 0 0.75rem; border-radius: var(--radius-md); font-size: var(--text-base); }
   .nav-btn svg { padding: 0; background: none !important; }
   .nav-btn.active { background: color-mix(in srgb, var(--accent) 13%, transparent); }
-  .app-header { padding-inline: 2rem 1.5rem; }
+  .app-header { padding-inline: max(2rem, calc((100% - var(--main-w)) / 2 + 2rem)) max(1.25rem, calc((100% - var(--main-w)) / 2 + 1.25rem)); }
   .home-date { margin-top: 0; }
-  .app-main { max-width: 1120px; margin: 0; padding: 1.25rem 2rem 4rem; }
-  .app-main > .tab-panel:not(#tab-home) { max-width: 720px; }
+  /* Ancho del contenido según la pestaña; la cabecera se alinea con él */
+  body { --main-w: 1040px; }
+  body[data-tab="routine"], body[data-tab="work"], body[data-tab="books"] { --main-w: 824px; }
+  .app-main { max-width: var(--main-w); margin: 0 auto; padding: 1.25rem 2rem 4rem; }
   .home { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
-  .home-date { grid-column: 1 / -1; }
-  .home-day { grid-column: 1 / span 5; grid-row: 2 / span 2; }
-  .home-tiles { grid-column: 6 / -1; }
-  .home-week { grid-column: 6 / -1; }
+  .home-date, .home .claude-strip { grid-column: 1 / -1; }
+  .home-day { grid-column: 1 / span 7; grid-row: span 2; }
+  .home-areas, .home-week { grid-column: 8 / -1; }
+  /* Pendientes en dos columnas: a la izquierda anotar y el avance, a la derecha la lista */
+  #tab-tasks:not(.hidden) { display: grid; grid-template-columns: 340px minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 2rem; align-items: start; }
+  #task-form { grid-column: 1; grid-row: 1; }
+  #task-progress { grid-column: 1; grid-row: 2; }
+  #attention { grid-column: 1; grid-row: 3; }
+  #task-counter { grid-column: 1; grid-row: 4; }
+  #task-groups, #task-empty { grid-column: 2; grid-row: 1 / -1; margin-top: 0; }
+  #task-empty { padding-top: 1rem; }
   .home-fab { right: 2rem; bottom: 2rem; }
+  body .qc-fab { right: max(1.5rem, calc((100vw - 232px - var(--main-w)) / 2 + 2rem)); }
   .sheet-backdrop { align-items: center; padding-left: 232px; }
   .sheet { border-radius: var(--radius-lg); max-height: 86vh; }
   .sheet::before { display: none; }
@@ -350,3 +354,9 @@ body {
 }
 .add-grid button:last-child:nth-child(odd) { grid-column: 1 / -1; min-height: 64px; flex-direction: row; align-items: center; }
 .meta-i { width: 13px; height: 13px; margin-right: 0.25rem; display: inline-block; vertical-align: -2px; opacity: 0.85; }
+
+/* Pendientes en el celular: solo la línea para escribir; prioridad y fecha aparecen al empezar a escribir
+   (así la lista solo se mueve mientras se teclea, nunca bajo el dedo) */
+@media (max-width: 1023px) {
+  #task-form:not(:has(#task-input:not(:empty))) .task-form-more { display: none; }
+}
