@@ -111,6 +111,13 @@ Códigos de sincronización de personas, contraseñas, tokens. La dirección del
 - **Accesos directos e iconos** de su escritorio (`Pictures\IconosApps`) y las tareas programadas locales (aún no hay ninguna).
 - En Windows, `npm run unit`/`npm run e2e` funcionan; si se usa PowerShell 5.1 y se escriben archivos con acentos desde scripts, guardar en UTF-8 sin BOM (hubo comentarios dañados en `styles.css` por eso).
 
+## 10b. Rediseño visual (rama `claude/diseno-interfaz`, desde el 15 nov 2026)
+
+- Sesión de diseño aparte (la de llamadas sigue en `claude/hopeful-sagan-nvsdya`; avisarle antes de tocar `APP_VERSION` o `CACHE`).
+- **Fase 1 hecha:** el dueño corrió en su laptop el análisis de 10 videos de diseño con Gemini (habilidad `equipo-gemini`, que solo funciona allá con `agy.exe`): `docs/analisis-videos.md` (tabla de síntesis, reglas de oro, propuesta de `:root`).
+- **Fase 2 hecha:** skill del proyecto `.claude/skills/art-direction/SKILL.md` (se carga en cualquier sesión de este repo: lista negra anti-«AI slop», tokens de letra/color/radios/movimiento, protocolo previo) y la guía del dueño `GUIA-DISENO-Y-CONTROL-CLAUDE.md`.
+- **Fase 3:** plan de rediseño propuesto al dueño; **no se ha tocado el código de la app** hasta que lo apruebe. Decisión pendiente: color de acento (terracota o azul cobalto).
+
 ## 10. Llamadas: estado real a 14 nov 2026
 
 - **Configurado por el dueño:** Firebase (`pendientes-claude`), secretos `FCM_GOOGLE_SERVICES`, `FCM_SERVICE_ACCOUNT` y `GEMINI_API_KEY` en el Worker, y Worker con el código nuevo (`/call/status` responde `push:true, voice:true`).
