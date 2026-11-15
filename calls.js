@@ -223,7 +223,8 @@ function onLiveEvent(L, e) {
     L.status = "En llamada"; L.started = Date.now();
     startLiveAudio(L);
     L.ws.send(JSON.stringify(CallLogic.firstTurn(false)));
-  } else if (e.kind === "audio") { L.lastAudioIn = Date.now(); playLive(L, e.data); }
+  } else if (e.kind === "audio") { L.lastAudioIn = Date.now(); if (L.hang) L.hang.audio = true; playLive(L, e.data); }
+  else if (e.kind === "turn") { if (L.hang && L.hang.audio) L.hang.turn = true; }
   else if (e.kind === "interrupted") { for (const s of L.sources) { try { s.stop(); } catch { /* ya terminó */ } } L.sources = []; L.playhead = 0; }
   else if (e.kind === "transcript") CallLogic.addTranscript(L.turns, e.who, e.text);
   else if (e.kind === "tool") runLiveTool(L, e);
@@ -234,7 +235,7 @@ function onLiveEvent(L, e) {
 async function runLiveTool(L, e) {
   let result;
   try {
-    if (e.name === "colgar") { result = "Listo, la llamada termina."; hangupWhenSilent(L, Date.now()); }
+    if (e.name === "colgar") { result = "Listo, la llamada termina."; if (!L.hang) { L.hang = { since: Date.now(), audio: false, turn: false }; hangupWhenSilent(L); } }
     else if (e.name === "dejar_encargo") {
       const text = String(e.args.texto || "").trim();
       if (!text) result = "Falta el texto del encargo.";
@@ -246,12 +247,12 @@ async function runLiveTool(L, e) {
 }
 
 /* Cuelga cuando Claude terminó de despedirse (no a los 2,5 s fijos, que cortaba la frase a la mitad) */
-function hangupWhenSilent(L, since) {
+function hangupWhenSilent(L) {
   setTimeout(() => {
     if (L.ended) return;
     const left = L.out ? Math.max(0, L.playhead - L.out.currentTime) : 0;
-    if (CallLogic.shouldHangup(Date.now() - since, Date.now() - (L.lastAudioIn || 0), left)) endClaudeCall("");
-    else hangupWhenSilent(L, since);
+    if (CallLogic.shouldHangup(Date.now() - L.hang.since, Date.now() - (L.lastAudioIn || 0), left, L.hang.turn, L.hang.audio)) endClaudeCall("");
+    else hangupWhenSilent(L);
   }, 400);
 }
 

@@ -70,10 +70,13 @@ assert.strictEqual(C.tasksForVoice(tasks, '2026-11-12'), 'Tareas pendientes (3):
 assert.strictEqual(C.tasksForVoice([], '2026-11-12'), 'No tiene tareas pendientes.');
 ok('pendientes para la voz: vencidas primero, sin las completadas');
 // ---- colgar sin cortar la despedida
-assert.strictEqual(C.shouldHangup(400, 5000, 0), false);        // aún no pasó el mínimo
-assert.strictEqual(C.shouldHangup(2000, 300, 0), false);        // acaba de llegar audio: Claude sigue hablando
-assert.strictEqual(C.shouldHangup(2000, 5000, 1.4), false);     // todavía queda audio por reproducir
-assert.strictEqual(C.shouldHangup(2000, 1300, 0.02), true);     // terminó de hablar y de sonar
-assert.strictEqual(C.shouldHangup(C.FAREWELL.maxMs, 0, 9), true); // tope por si algo falla
+assert.strictEqual(C.shouldHangup(2000, 5000, 0, false, false), false); // se despidió antes: espera un poco por si dice algo más
+assert.strictEqual(C.shouldHangup(4100, 5000, 0, false, false), true);  // no dijo nada más: cuelga
+assert.strictEqual(C.shouldHangup(2000, 300, 0, false, true), false);   // está hablando
+assert.strictEqual(C.shouldHangup(5000, 5000, 1.4, true, true), false); // todavía suena audio
+assert.strictEqual(C.shouldHangup(6000, 1500, 0, false, true), false);  // habló pero su turno no ha terminado (pausa)
+assert.strictEqual(C.shouldHangup(2000, 1300, 0.02, true, true), true); // terminó su turno, de hablar y de sonar
+assert.strictEqual(C.shouldHangup(1000, 1300, 0, true, true), false);   // aún no pasó el mínimo
+assert.strictEqual(C.shouldHangup(C.FAREWELL.maxMs, 0, 9, false, true), true); // tope por si algo falla
 ok('colgar: espera a que termine el audio de la despedida, con tope de 20 s');
 console.log('todas las pruebas de calllogic.js pasan');

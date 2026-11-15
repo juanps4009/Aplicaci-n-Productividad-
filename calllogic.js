@@ -145,12 +145,16 @@
     return out;
   }
 
-  /* «colgar» sin cortar la despedida: cuelga cuando ya pasó un mínimo, no llegó audio nuevo en un rato y no queda
-     audio por reproducir; con un tope por si algo falla. Misma regla que CallService.hangupWhenSilent (Android). */
-  const FAREWELL = { minMs: 1500, quietMs: 1200, maxMs: 20000 };
-  function shouldHangup(waitedMs, sinceAudioMs, playbackLeftSec) {
+  /* «colgar» sin cortar la despedida. Gemini a veces se despide ANTES de usar colgar y a veces DESPUÉS (y tarda en
+     empezar). Regla: nunca mientras llega o suena audio; si después de colgar llegó voz, esperar a que ese turno termine;
+     si no llegó nada, esperar un poco por si empieza a despedirse; y un tope por si algo falla.
+     Misma regla que CallLogic.shouldHangup (Android). */
+  const FAREWELL = { minMs: 1500, quietMs: 1200, noReplyMs: 4000, maxMs: 20000 };
+  function shouldHangup(waitedMs, sinceAudioMs, playbackLeftSec, turnDone, audioAfter) {
     if (waitedMs >= FAREWELL.maxMs) return true;
-    return waitedMs >= FAREWELL.minMs && sinceAudioMs > FAREWELL.quietMs && playbackLeftSec <= 0.05;
+    if (sinceAudioMs <= FAREWELL.quietMs || playbackLeftSec > 0.05) return false;
+    if (audioAfter) return !!turnDone && waitedMs >= FAREWELL.minMs;
+    return waitedMs >= FAREWELL.noReplyMs;
   }
 
   const ERRORS = {
