@@ -116,7 +116,8 @@ Códigos de sincronización de personas, contraseñas, tokens. La dirección del
 - Sesión de diseño aparte (la de llamadas sigue en `claude/hopeful-sagan-nvsdya`; avisarle antes de tocar `APP_VERSION` o `CACHE`).
 - **Fase 1 hecha:** el dueño corrió en su laptop el análisis de 10 videos de diseño con Gemini (habilidad `equipo-gemini`, que solo funciona allá con `agy.exe`): `docs/analisis-videos.md` (tabla de síntesis, reglas de oro, propuesta de `:root`).
 - **Fase 2 hecha:** skill del proyecto `.claude/skills/art-direction/SKILL.md` (se carga en cualquier sesión de este repo: lista negra anti-«AI slop», tokens de letra/color/radios/movimiento, protocolo previo) y la guía del dueño `GUIA-DISENO-Y-CONTROL-CLAUDE.md`.
-- **Fase 3:** plan de rediseño propuesto al dueño; **no se ha tocado el código de la app** hasta que lo apruebe. Decisión pendiente: color de acento (terracota o azul cobalto).
+- **Fase 3:** plan aprobado por el dueño (partes A base → B marco → C pantallas → D pulido), con acento **azul cobalto**.
+- **Parte A hecha (15 nov):** en `tablero.css` (`:root`) paleta nueva (acento `#0b5cab` claro / `#6eb5ff` oscuro, el mismo en todas las pestañas: se quitaron los `body[data-tab]`), tokens `--text-xs…xl`, `--radius-sm/md/lg/pill`, `--dur-fast/base/slow`, `--ease-out/in-out`, `--shadow-float`; sin sombras en tarjetas (borde de 1px), cabecera sin desenfoque. En los 4 CSS todos los `font-size`, `border-radius` y tiempos de animación pasan por esos tokens; sin rebotes; sin animar `width`/`height`/`bottom` (el botón Anotar sube con `transform`); `:hover` solo con ratón; `prefers-reduced-motion` apaga también `animation`. `manifest` y `privacidad.html` con el color nuevo. No se tocó `app.js` ni `sw.js` (la lista de archivos no cambió). Pendiente: los iconos de la app siguen en índigo (son imágenes).
 
 ## 10. Llamadas: estado real a 14 nov 2026
 
