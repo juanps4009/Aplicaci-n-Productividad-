@@ -29,3 +29,13 @@ WIDGET DE PENDIENTES EN EL ESCRITORIO (ventana pequena, sin marco)
      "Abrir la app completa", "Recargar" y "Cerrar el widget". Como no tiene boton de cerrar, se cierra desde ahi.
   Para quitarlo: cierra el widget desde ese icono y borra "Pendientes (widget)" del escritorio y de la carpeta de Inicio
   (Win+R -> shell:startup). Los datos estan en %LOCALAPPDATA%\Pendientes (puedes borrar esa carpeta).
+
+CLAUDE EN TU COMPUTADOR TAMBIEN PUEDE LLAMARTE (Claude Code local)
+  1. Descarga "Activar-llamadas-Claude.cmd" y abrelo con doble clic (mismos avisos de SmartScreen que arriba).
+     Si falta Node.js (gratis) abre su pagina: instala la version LTS y vuelve a abrir el archivo.
+  2. Pega tu codigo de sincronizacion cuando lo pida (en la app: Ajustes -> Sincronizar mis dispositivos -> Copiar).
+     No se ve en pantalla y queda SOLO en este PC: %USERPROFILE%\.pendientes\codigo.txt
+  3. Cierra y vuelve a abrir Claude Code. Dile "llamame para probar".
+  Claude solo llama para pedirte un permiso o una decision; para avisos te deja un mensaje en la app.
+  Para actualizar: vuelve a abrir el archivo. Para quitarlo: borra %USERPROFILE%\.claude\skills\llamar-al-dueno
+  y la carpeta %USERPROFILE%\.pendientes
