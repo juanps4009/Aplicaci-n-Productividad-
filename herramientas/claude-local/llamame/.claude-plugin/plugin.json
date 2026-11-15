@@ -1,0 +1,7 @@
+{
+  "name": "llamame",
+  "version": "0.1.0",
+  "description": "Interruptor «Llámame»: con él activado, Claude te llama al celular cuando necesita un permiso o una decisión tuya.",
+  "types": "./types/index.d.ts",
+  "license": "MIT"
+}

@@ -39,3 +39,9 @@ CLAUDE EN TU COMPUTADOR TAMBIEN PUEDE LLAMARTE (Claude Code local)
   Claude solo llama para pedirte un permiso o una decision; para avisos te deja un mensaje en la app.
   Para actualizar: vuelve a abrir el archivo. Para quitarlo: borra %USERPROFILE%\.claude\skills\llamar-al-dueno
   y la carpeta %USERPROFILE%\.pendientes
+  BOTON "LLAMAME" EN CLAUDE CODE (opcional, despues de lo anterior)
+  En Claude Code escribe estas dos lineas, una por una (responde "y" y elige "user" si pregunta):
+     /plugin marketplace add juanps4009/Aplicaci-n-Productividad-
+     /plugin install llamame@pendientes
+  Aparece encima del chat el boton "Llamame". Activado, Claude te llama al celular cuando necesite tu permiso.
+  Tambien se cambia con /llamame. Queda guardado entre sesiones.
