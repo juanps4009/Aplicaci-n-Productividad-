@@ -111,6 +111,15 @@ Códigos de sincronización de personas, contraseñas, tokens. La dirección del
 - **Accesos directos e iconos** de su escritorio (`Pictures\IconosApps`) y las tareas programadas locales (aún no hay ninguna).
 - En Windows, `npm run unit`/`npm run e2e` funcionan; si se usa PowerShell 5.1 y se escriben archivos con acentos desde scripts, guardar en UTF-8 sin BOM (hubo comentarios dañados en `styles.css` por eso).
 
+## 10b. Rediseño visual (rama `claude/diseno-interfaz`, desde el 15 nov 2026)
+
+- Sesión de diseño aparte (la de llamadas sigue en `claude/hopeful-sagan-nvsdya`; avisarle antes de tocar `APP_VERSION` o `CACHE`).
+- **Fase 1 hecha:** el dueño corrió en su laptop el análisis de 10 videos de diseño con Gemini (habilidad `equipo-gemini`, que solo funciona allá con `agy.exe`): `docs/analisis-videos.md` (tabla de síntesis, reglas de oro, propuesta de `:root`).
+- **Fase 2 hecha:** skill del proyecto `.claude/skills/art-direction/SKILL.md` (se carga en cualquier sesión de este repo: lista negra anti-«AI slop», tokens de letra/color/radios/movimiento, protocolo previo) y la guía del dueño `GUIA-DISENO-Y-CONTROL-CLAUDE.md`.
+- **Fase 3:** plan aprobado por el dueño (partes A base → B marco → C pantallas → D pulido), con acento **azul cobalto**.
+- **Parte A hecha (15 nov):** en `tablero.css` (`:root`) paleta nueva (acento `#0b5cab` claro / `#6eb5ff` oscuro, el mismo en todas las pestañas: se quitaron los `body[data-tab]`), tokens `--text-xs…xl`, `--radius-sm/md/lg/pill`, `--dur-fast/base/slow`, `--ease-out/in-out`, `--shadow-float`; sin sombras en tarjetas (borde de 1px), cabecera sin desenfoque. En los 4 CSS todos los `font-size`, `border-radius` y tiempos de animación pasan por esos tokens; sin rebotes; sin animar `width`/`height`/`bottom` (el botón Anotar sube con `transform`); `:hover` solo con ratón; `prefers-reduced-motion` apaga también `animation`. `manifest` y `privacidad.html` con el color nuevo. No se tocó `app.js` ni `sw.js` (la lista de archivos no cambió). Pendiente: los iconos de la app siguen en índigo (son imágenes).
+- **Parte B + primeras de C (15 nov, aprobadas por el dueño):** Inicio sin las 4 cajas: `home.js` dibuja `.home-areas` (una fila `.area` por área con texto corto; `data-go`/`data-view` como antes). Pendientes en el celular: la fila de prioridad y fecha (`.task-form-more` en `index.html`) sale solo cuando hay texto en el campo (se probó mostrarla al enfocar, pero la lista saltaba bajo el dedo); las tareas son filas dentro de una tarjeta por grupo (`.group-list`). Computador (≥1024 px): contenido centrado con `--main-w` (1040 px Inicio/Pendientes, 824 px el resto) y la cabecera alineada con él; Inicio en 2 columnas (tu día | áreas + semana; la tarjeta de Claude a todo lo ancho); Pendientes en 2 columnas (anotar y avance | lista); «Anotar» alineado con el contenido. Prueba `pendientes-e2e.js` actualizada.
+
 ## 10. Llamadas: estado real a 14 nov 2026
 
 - **Configurado por el dueño:** Firebase (`pendientes-claude`), secretos `FCM_GOOGLE_SERVICES`, `FCM_SERVICE_ACCOUNT` y `GEMINI_API_KEY` en el Worker, y Worker con el código nuevo (`/call/status` responde `push:true, voice:true`).

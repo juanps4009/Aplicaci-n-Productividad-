@@ -88,37 +88,26 @@ function renderHome() {
   const income = Work.monthTotal(state.work, now.slice(0, 7));
   const lastBook = [...state.books].filter((x) => !x.isNew).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0];
 
+  // Resumen de cada área: una fila por área, texto corto y tranquilo (sin cajas ni palabras gigantes)
+  const pendingAll = state.tasks.filter((t) => !t.done).length, todayLeft = tk.list.length - tk.done;
+  const area = (go, cls, icon, name, info, view = "") => `<button class="area ${cls}" data-go="${go}"${view ? ` data-view="${view}"` : ""}>
+      <span class="area-ico" aria-hidden="true">${homeSvg(icon)}</span>
+      <span class="area-name">${name}</span>
+      <span class="area-info">${info}</span>
+    </button>`;
+  const hot = (txt) => `<em class="hot">${txt}</em>`;
   const tiles = [
-    `<button class="tile t-tasks" data-go="tasks">
-      <span class="tile-top"><span class="tile-ico">${homeSvg("tasks")}</span><span class="tile-name">Pendientes</span></span>
-      <span class="home-big">${tk.list.length - tk.done ? plural(tk.list.length - tk.done, "para hoy", "para hoy") : "Al día"}</span>
-      <p class="${tk.overdue ? "hot" : ""}">${tk.overdue ? plural(tk.overdue, "vencida", "vencidas") : `${plural(state.tasks.filter((t) => !t.done).length, "pendiente", "pendientes")} en total`}</p>
-      <span class="bar" role="img" aria-label="${tk.done} de ${tk.list.length} tareas de hoy"><span style="width:${tk.list.length ? Math.round((tk.done / tk.list.length) * 100) : 0}%"></span></span>
-    </button>`,
-    `<button class="tile t-routine" data-go="routine">
-      <span class="tile-top"><span class="tile-ico">${homeSvg("flame")}</span><span class="tile-name">Rutina</span></span>
-      <span class="home-big">${hasRoutine ? plural(streak, "día", "días") : "Sin rutina"}</span>
-      <p>${hasRoutine ? `de racha · hoy ${rt.done} de ${rt.total}` : "Crea tus hábitos de cada día"}</p>
-      ${hasRoutine ? `<span class="mini-week" aria-label="Tu semana">${wk.days.map((x, i) => `<span class="d-${x.state}"><i></i>${Routine.DAY_SHORT[i]}</span>`).join("")}</span>` : ""}
-    </button>`,
+    area("tasks", "t-tasks", "tasks", "Pendientes",
+      [todayLeft ? plural(todayLeft, "para hoy", "para hoy") : pendingAll ? "Nada para hoy" : "Todo al día",
+        tk.overdue ? hot(plural(tk.overdue, "vencida", "vencidas")) : pendingAll && todayLeft ? `${pendingAll} en total` : ""].filter(Boolean).join(" · ")),
+    area("routine", "t-routine", "flame", "Rutina",
+      hasRoutine ? `Hoy ${rt.done} de ${rt.total}${streak ? ` · racha de ${plural(streak, "día", "días")}` : ""}` : "Aún no hay hábitos"),
     income.count
-      ? `<button class="tile t-work" data-go="work" data-view="income">
-      <span class="tile-top"><span class="tile-ico">${homeSvg("money")}</span><span class="tile-name">Ingresos del mes</span></span>
-      <span class="home-big">${Work.money(income.total)}</span>
-      <p class="${soon ? "hot" : ""}">${soon ? `${plural(soon, "oferta cierra", "ofertas cierran")} pronto` : `${plural(income.count, "pago", "pagos")} · ${active ? plural(active, "oferta activa", "ofertas activas") : "sin ofertas activas"}`}</p>
-      ${income.total ? `<span class="wk-stack" role="img" aria-label="Con Claude ${Work.money(income.byType.claude)}, presencial ${Work.money(income.byType.presencial)}"><span style="flex:${income.byType.claude || 0.01};background:var(--amb-mid)"></span><span style="flex:${income.byType.presencial || 0.01};background:var(--amb-bg);box-shadow:inset 0 0 0 1.5px var(--amb-mid)"></span></span>` : ""}
-    </button>`
-      : `<button class="tile t-work" data-go="work" data-view="opps">
-      <span class="tile-top"><span class="tile-ico">${homeSvg("work")}</span><span class="tile-name">Oportunidades</span></span>
-      <span class="home-big">${active ? plural(active, "activa", "activas") : "Ninguna"}</span>
-      <p class="${soon ? "hot" : ""}">${soon ? `${plural(soon, "cierra", "cierran")} pronto` : c.review ? `${c.review} por revisar` : "Añade ofertas para seguirlas"}</p>
-      ${c.total ? `<span class="wk-stack" aria-hidden="true"><span style="flex:${c.review || 0.01};background:var(--track)"></span><span style="flex:${c.applied || 0.01};background:var(--ind-mid)"></span><span style="flex:${c.replied || 0.01};background:var(--grn-mid)"></span></span>` : ""}
-    </button>`,
-    `<button class="tile t-books" data-go="books">
-      <span class="tile-top"><span class="tile-ico">${homeSvg("book")}</span><span class="tile-name">Resúmenes</span></span>
-      <span class="home-big sm">${lastBook ? RT.toHTML(lastBook.title, lastBook.titleMarks) || "Sin título" : "Tu primer libro"}</span>
-      <p>${state.books.length ? `${plural(state.books.length, "resumen", "resúmenes")} · el último que tocaste` : "Guarda las ideas de lo que lees"}</p>
-    </button>`,
+      ? area("work", "t-work", "money", "Ingresos", `${Work.money(income.total)} este mes${soon ? ` · ${hot(`${plural(soon, "oferta cierra", "ofertas cierran")} pronto`)}` : ""}`, "income")
+      : area("work", "t-work", "work", "Trabajo",
+        active ? [plural(active, "oferta activa", "ofertas activas"), soon ? hot(`${plural(soon, "cierra", "cierran")} pronto`) : c.review ? `${c.review} por revisar` : ""].filter(Boolean).join(" · ") : "Sin ofertas guardadas", "opps"),
+    area("books", "t-books", "book", "Resúmenes",
+      lastBook ? `<span class="area-book">${RT.toHTML(lastBook.title, lastBook.titleMarks) || "Sin título"}</span>` : "Aún no hay resúmenes"),
   ];
 
   // Tu semana: porcentaje de cada día de la rutina y comparación con la semana anterior
@@ -151,7 +140,7 @@ function renderHome() {
           <div class="home-focus">${focus.length ? focus.map((t) => homeTaskHTML(t, now)).join("") : `<p class="home-empty">Nada urgente. Las tareas vencidas, las de hoy y las de prioridad alta aparecen aquí.</p>`}</div>
         </div>
       </section>
-      <div class="home-tiles">${tiles.join("")}</div>
+      <nav class="card home-areas" aria-label="Tus áreas">${tiles.join("")}</nav>
       ${hasRoutine ? `
       <section class="card home-week" aria-label="Tu semana">
         <div class="home-week-head">

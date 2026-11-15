@@ -12,7 +12,10 @@ const assert = require('assert');
   const task = (t) => p.locator(`.task-item:has-text("${t}")`);
   const due = (t) => p.evaluate((t) => JSON.parse(localStorage.getItem('prod.tasks')).find((x) => x.text === t)?.due, t);
 
-  // fechas rápidas
+  // fechas rápidas (en el celular la fila de prioridad y fecha sale al escribir)
+  assert(!(await p.isVisible('#quick-due'))); ok('formulario compacto hasta tocarlo');
+  await p.fill('#task-input', 'Pagar luz');
+  assert(await p.isVisible('#quick-due')); ok('al escribir aparecen prioridad y fecha');
   await p.click('#quick-due [data-quick="1"]');
   assert.strictEqual(await p.inputValue('#task-due'), '2026-10-06'); ok('«Mañana» pone la fecha');
   assert(await p.locator('#quick-due [data-quick="1"]').evaluate((e) => e.classList.contains('active')));
