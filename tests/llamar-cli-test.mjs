@@ -114,7 +114,7 @@ assert(!everything.includes(code) && !everything.includes(Sync.formatCode(code))
 ok('otro código no ve nada; el código nunca aparece en la salida');
 // habilidad para Claude Code local (la instala escritorio/Activar-llamadas-Claude.cmd con la ruta real)
 const { readFileSync } = await import('node:fs');
-const skill = readFileSync(new URL('../herramientas/claude-local/SKILL.md', import.meta.url), 'utf8');
+const skill = readFileSync(new URL('../herramientas/claude-local/SKILL.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n'); // en Windows git puede dejarlo con CRLF
 assert(/^---\nname: llamar-al-dueno\ndescription: .+\n---\n/.test(skill));
 assert(skill.includes('node "{{LLAMAR}}"') && skill.includes('--contexto') && skill.includes('mensaje'));
 const cmd = readFileSync(new URL('../escritorio/Activar-llamadas-Claude.cmd', import.meta.url), 'utf8');
