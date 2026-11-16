@@ -59,7 +59,7 @@ onSleep = async () => {
   assert.strictEqual(inv.reason, '¿Apruebo el despliegue?'); assert.strictEqual(inv.context, 'Las pruebas pasaron.'); assert.strictEqual(inv.from, 'Claude');
   await phone('/call/update', { id, state: 'ringing' }); await phone('/call/update', { id, state: 'active' });
   assert.strictEqual((await phone('/voice/token', { id })).token, 'auth_tokens/x');
-  await phone('/call/update', { id, state: 'ended', result: await seal({ seconds: 95, summary: 'Aprobó el despliegue.', turns: [{ who: 'ia', text: 'Hola, Claude quiere saber si despliega.' }, { who: 'yo', text: 'Sí, dale.' }] }, AAD.result(id)) });
+  await phone('/call/update', { id, state: 'ended', result: await seal({ seconds: 95, summary: 'Aprobó el despliegue.', turns: [{ who: 'ia', text: 'Hola, Claude quiere saber si despliega.' }, { who: 'yo', text: 'Sí, dale.' }], mic: { peak: 0, silenced: true, restarts: 1, deadAtEnd: true } }, AAD.result(id)) });
 };
 out = await cli('llamar', '¿Apruebo', 'el', 'despliegue?', '--contexto', 'Las pruebas pasaron.', '--urgente');
 assert.deepStrictEqual(pushes.at(-1).urgent, '1');
@@ -68,7 +68,8 @@ const callId = pushes.at(-1).id;
 const stored = env.DB.raw.prepare('SELECT invite, result FROM calls WHERE id = ?').get(callId);
 assert(stored.invite.startsWith('e1:') && stored.result.startsWith('e1:') && !/despliegue|dale/.test(stored.invite + stored.result));
 const j = JSON.parse(await cli('llamada', callId, '--json')); assert.strictEqual(j.estado, 'ended'); assert.strictEqual(j.turnos.length, 2);
-ok('llamar: suena, contesta, habla con la IA de voz y la transcripción vuelve; en el servidor todo va cifrado');
+assert(out.includes('Micrófono del celular: NO llegó su voz (pico 0, Android lo silenció, se reabrió 1 vez)'), out); assert.strictEqual(j.microfono.silenced, true);
+ok('llamar: suena, contesta, habla con la IA de voz y la transcripción vuelve (con el diagnóstico del micrófono); en el servidor todo va cifrado');
 
 // ---- no contesta → perdida y mensaje
 onSleep = async () => { env.DB.raw.prepare('UPDATE calls SET created_at = created_at - 3000 WHERE id = ?').run(pushes.at(-1).id); }; // el reloj del servidor avanza

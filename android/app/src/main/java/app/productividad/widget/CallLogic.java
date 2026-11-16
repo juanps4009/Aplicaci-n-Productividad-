@@ -25,6 +25,15 @@ final class CallLogic {
        de colgar llegó voz, esperar a que ese turno termine; si no llegó nada, esperar un poco; tope por si algo falla. */
     static final long HANG_MIN_MS = 1500, HANG_QUIET_MS = 1200, HANG_NO_REPLY_MS = 4000, HANG_MAX_MS = 20000;
 
+    /** Diagnóstico del micrófono: pico de nivel (0–100), si Android lo silenció, reinicios y si terminó mudo. */
+    static String micDiag(int peak, boolean silenced, int restarts, boolean deadAtEnd) {
+        try {
+            return new JSONObject().put("peak", peak).put("silenced", silenced).put("restarts", restarts).put("deadAtEnd", deadAtEnd).toString();
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
     static boolean shouldHangup(long waitedMs, long sinceAudioMs, long playbackLeftMs, boolean turnDone, boolean audioAfter) {
         if (waitedMs >= HANG_MAX_MS) return true;
         if (sinceAudioMs <= HANG_QUIET_MS || playbackLeftMs > 50) return false;
@@ -119,7 +128,6 @@ final class CallLogic {
                 .put("tools", tools)
                 // menos sensible a ruido/eco para que no corte a Claude a media frase
                 .put("realtimeInputConfig", new JSONObject().put("automaticActivityDetection", new JSONObject()
-                        .put("startOfSpeechSensitivity", "START_SENSITIVITY_LOW")
                         .put("endOfSpeechSensitivity", "END_SENSITIVITY_LOW")
                         .put("prefixPaddingMs", 300)
                         .put("silenceDurationMs", 900)))
@@ -225,13 +233,18 @@ final class CallLogic {
             return s.toString().trim();
         }
 
-        synchronized String resultJson(long seconds) throws JSONException {
+        synchronized String resultJson(long seconds) throws JSONException { return resultJson(seconds, null); }
+
+        /** Con diagnóstico del micrófono (micDiag), para entender una llamada en la que Claude no oyó al dueño. */
+        synchronized String resultJson(long seconds, String micJson) throws JSONException {
             JSONArray arr = new JSONArray();
             for (String[] t : turns) {
                 String text = t[1].trim();
                 if (!text.isEmpty()) arr.put(new JSONObject().put("who", t[0]).put("text", text));
             }
-            return new JSONObject().put("v", 1).put("turns", arr).put("seconds", seconds).toString();
+            JSONObject o = new JSONObject().put("v", 1).put("turns", arr).put("seconds", seconds);
+            if (micJson != null) o.put("mic", new JSONObject(micJson));
+            return o.toString();
         }
     }
 

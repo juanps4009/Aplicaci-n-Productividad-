@@ -25,6 +25,8 @@ public class CallActivity extends Activity implements CallService.Ui {
     private View rowRinging, rowTalking, close;
     private TextView mute, speaker;
     private String pendingAction; // contestar o llamar, esperando el permiso del micrófono
+    private String startOnResume; // contestar o llamar cuando la pantalla ya está al frente (si no, Android silencia el micrófono)
+    private TextView mic;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +41,7 @@ public class CallActivity extends Activity implements CallService.Ui {
         setContentView(R.layout.activity_call);
         name = findViewById(R.id.call_name);
         status = findViewById(R.id.call_status);
+        mic = findViewById(R.id.call_mic);
         reason = findViewById(R.id.call_reason);
         transcript = findViewById(R.id.call_transcript);
         scroll = findViewById(R.id.call_scroll);
@@ -65,8 +68,13 @@ public class CallActivity extends Activity implements CallService.Ui {
 
     private void handle(Intent intent) {
         String action = intent == null ? null : intent.getAction();
-        if (CallService.ACTION_ANSWER.equals(action) || CallService.ACTION_OUTGOING.equals(action)) start(action);
+        if (CallService.ACTION_ANSWER.equals(action) || CallService.ACTION_OUTGOING.equals(action)) {
+            if (resumed) start(action);
+            else startOnResume = action; // viene de la notificación o de otra app: esperar a estar al frente
+        }
     }
+
+    private boolean resumed;
 
     /** Contestar o llamar: primero que todo esté listo y el permiso del micrófono. */
     private void start(String action) {
@@ -100,12 +108,19 @@ public class CallActivity extends Activity implements CallService.Ui {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
         CallService.ui = this;
         render();
+        if (startOnResume != null) {
+            String a = startOnResume;
+            startOnResume = null;
+            getWindow().getDecorView().postDelayed(() -> { if (resumed) start(a); }, 300);
+        }
     }
 
     @Override
     protected void onPause() {
+        resumed = false;
         if (CallService.ui == this) CallService.ui = null;
         super.onPause();
     }
@@ -140,6 +155,23 @@ public class CallActivity extends Activity implements CallService.Ui {
         boolean live = s.phase == CallService.Phase.CONNECTING || s.phase == CallService.Phase.TALKING;
         rowTalking.setVisibility(live ? View.VISIBLE : View.GONE);
         close.setVisibility(s.phase == CallService.Phase.ENDED ? View.VISIBLE : View.GONE);
+        boolean talking = s.phase == CallService.Phase.TALKING;
+        mic.setVisibility(talking ? View.VISIBLE : View.GONE);
+        if (talking) {
+            if (s.micWarning != null) {
+                mic.setText("⚠️ " + s.micWarning);
+                mic.setTextColor(getColor(R.color.danger));
+            } else if (s.muted) {
+                mic.setText("🎙️ Silenciado: Claude no te oye");
+                mic.setTextColor(getColor(R.color.muted));
+            } else {
+                int bars = Math.min(5, (s.micLevel + 9) / 10);
+                StringBuilder b = new StringBuilder("🎙️ ");
+                for (int i = 0; i < 5; i++) b.append(i < bars ? '▮' : '▯');
+                mic.setText(b.append(bars > 0 ? "  Te escucho" : "  Habla…").toString());
+                mic.setTextColor(getColor(R.color.muted));
+            }
+        }
         mute.setSelected(s.muted);
         mute.setText(s.muted ? "Silenciado" : "Silenciar");
         speaker.setSelected(s.speaker);

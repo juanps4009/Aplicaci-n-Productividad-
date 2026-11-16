@@ -28,6 +28,16 @@
         android:textSize="16sp" />
 
     <TextView
+        android:id="@+id/call_mic"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingTop="6dp"
+        android:textColor="@color/muted"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/call_reason"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

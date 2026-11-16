@@ -54,6 +54,10 @@ public class CallService extends Service {
     boolean fromClaude = true, urgent, speaker, muted;
     volatile Phase phase = Phase.RINGING;
     String reason = "", status = "", error = null;
+    /* Micrófono: nivel para la barrita de la pantalla, aviso si no llega y diagnóstico que viaja (cifrado) con la transcripción. */
+    int micLevel = 0;
+    String micWarning = null;
+    private boolean micSilenced;
     final CallLogic.Transcript transcript = new CallLogic.Transcript();
     long talkStartedAt;
 
@@ -181,6 +185,7 @@ public class CallService extends Service {
                 main.postDelayed(maxTimeout, CallLogic.MAX_MS);
                 updateNotification(ongoingNotification());
                 notifyUi();
+                main.postDelayed(micWatch, 500);
             });
         }
 
@@ -219,6 +224,39 @@ public class CallService extends Service {
         }
     };
 
+    /* ---------- vigilar el micrófono ---------- */
+    private final Runnable micWatch = new Runnable() {
+        @Override public void run() {
+            GeminiLive l = live;
+            if (l == null || phase != Phase.TALKING) return;
+            micLevel = muted ? 0 : l.micLevel;
+            if (systemSilenced(l.micSessionId())) micSilenced = true;
+            boolean dead = l.micDead(4000) || systemSilenced(l.micSessionId());
+            if (dead && l.micRestarts == 0) {
+                Calls.IO.execute(l::restartMic); // a veces Android lo suelta al volver a abrirlo
+            } else if (dead) {
+                micWarning = "Claude no te está oyendo: Android bloqueó el micrófono. Cuelga y vuelve a llamar con la pantalla desbloqueada.";
+            } else {
+                micWarning = null;
+            }
+            notifyUi();
+            main.postDelayed(this, 500);
+        }
+    };
+
+    /** Android 10+ dice si silenció la grabación de esta app (pasa si contestó sin estar en primer plano). */
+    private boolean systemSilenced(int session) {
+        if (Build.VERSION.SDK_INT < 29 || session == 0) return false;
+        AudioManager am = getSystemService(AudioManager.class);
+        if (am == null) return false;
+        try {
+            for (android.media.AudioRecordingConfiguration c : am.getActiveRecordingConfigurations()) {
+                if (c.getClientAudioSessionId() == session) return c.isClientSilenced();
+            }
+        } catch (Exception ignored) { }
+        return false;
+    }
+
     /* ---------- terminar ---------- */
     private void decline() {
         if (current != this || phase != Phase.RINGING) { stopIfIdle(); return; }
@@ -250,7 +288,9 @@ public class CallService extends Service {
         phase = Phase.ENDED;
         main.removeCallbacks(ringTimeout);
         main.removeCallbacks(maxTimeout);
+        main.removeCallbacks(micWatch);
         GeminiLive l = live;
+        final String micJson = l == null ? null : CallLogic.micDiag(l.micPeak, micSilenced, l.micRestarts, l.micDead(4000));
         live = null;
         if (l != null) Calls.IO.execute(l::stop);
         routeAudio(false);
@@ -263,7 +303,7 @@ public class CallService extends Service {
         final CallApi a = api;
         if (talked && a != null && !id.isEmpty()) {
             Calls.IO.execute(() -> {
-                try { a.setState(id, "ended", a.seal(transcript.resultJson(seconds), CallLogic.aadResult(id))); } catch (Exception ignored) { }
+                try { a.setState(id, "ended", a.seal(transcript.resultJson(seconds, micJson), CallLogic.aadResult(id))); } catch (Exception ignored) { }
             });
         }
         stopForeground(STOP_FOREGROUND_REMOVE);
