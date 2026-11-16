@@ -92,7 +92,8 @@ async function describeCall(ctx, c) {
   const result = await open(ctx, c.result, AAD.result(c.id));
   const invite = await open(ctx, c.invite, AAD.invite(c.id));
   return { id: c.id, estado: c.state, motivo: invite && invite.reason || "", segundos: result && result.seconds || 0,
-    resumen: result && result.summary || "", turnos: result && Array.isArray(result.turns) ? result.turns : [] };
+    resumen: result && result.summary || "", turnos: result && Array.isArray(result.turns) ? result.turns : [],
+    microfono: result && result.mic && typeof result.mic === "object" ? result.mic : null };
 }
 
 function callText(d) {
@@ -104,6 +105,10 @@ function callText(d) {
   }[d.estado] || d.estado;
   const out = [`${head} (llamada ${d.id})`];
   if (d.resumen) out.push("", `Resumen: ${d.resumen}`);
+  const mic = d.microfono;
+  if (mic) out.push("", mic.silenced || mic.deadAtEnd || mic.peak < 3
+    ? `Micrófono del celular: NO llegó su voz (pico ${mic.peak}${mic.silenced ? ", Android lo silenció" : ""}${mic.restarts ? `, se reabrió ${mic.restarts} vez` : ""}). Lo que digas de su parte no lo oyó.`
+    : `Micrófono del celular: bien (pico ${mic.peak}).`);
   if (d.turnos.length) out.push("", "Transcripción:", ...d.turnos.map((t) => `- ${t.who === "yo" ? "Dueño" : "IA de voz"}: ${t.text}`));
   return out.join("\n");
 }

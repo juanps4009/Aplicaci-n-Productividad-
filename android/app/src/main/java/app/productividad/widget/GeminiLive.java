@@ -43,6 +43,10 @@ final class GeminiLive {
     private WebSocket ws;
     private volatile boolean running, ready, muted;
     private AudioRecord recorder;
+    private final Object micLock = new Object();
+    /* Diagnóstico del micrófono: nivel actual (0–100), pico, si llegó algo distinto de cero y reinicios. */
+    volatile int micLevel = 0, micPeak = 0, micRestarts = 0;
+    private volatile long micStartedAt = 0, lastNonZeroAt = 0;
     private AudioTrack player;
     private Thread micThread, playThread;
     private volatile long audioEndsAt = 0, lastAudioIn = 0, hangSince = 0;
@@ -112,18 +116,47 @@ final class GeminiLive {
     boolean isMuted() { return muted; }
 
     @SuppressLint("MissingPermission") // el permiso de micrófono se pide antes de contestar o llamar
-    private void startAudio() {
+    private static AudioRecord newRecorder() {
         int inMin = AudioRecord.getMinBufferSize(CallLogic.IN_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, CallLogic.IN_RATE,
+        AudioRecord r = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, CallLogic.IN_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(inMin, 3200) * 2);
         if (AcousticEchoCanceler.isAvailable()) {
-            AcousticEchoCanceler aec = AcousticEchoCanceler.create(recorder.getAudioSessionId());
+            AcousticEchoCanceler aec = AcousticEchoCanceler.create(r.getAudioSessionId());
             if (aec != null) aec.setEnabled(true);
         }
         if (NoiseSuppressor.isAvailable()) {
-            NoiseSuppressor ns = NoiseSuppressor.create(recorder.getAudioSessionId());
+            NoiseSuppressor ns = NoiseSuppressor.create(r.getAudioSessionId());
             if (ns != null) ns.setEnabled(true);
         }
+        r.startRecording();
+        return r;
+    }
+
+    /** Sesión de audio del micrófono (para preguntarle a Android si lo silenció), o 0. */
+    int micSessionId() {
+        synchronized (micLock) { return recorder != null ? recorder.getAudioSessionId() : 0; }
+    }
+
+    /** true si desde hace un rato el micrófono solo entrega ceros (Android lo bloqueó o no arrancó). */
+    boolean micDead(long forMs) {
+        long now = System.currentTimeMillis();
+        return micStartedAt > 0 && now - micStartedAt > forMs && now - lastNonZeroAt > forMs;
+    }
+
+    /** Vuelve a abrir el micrófono (una vez por llamada, lo decide CallService). */
+    void restartMic() {
+        synchronized (micLock) {
+            if (!running) return;
+            try { if (recorder != null) { recorder.stop(); recorder.release(); } } catch (Exception ignored) { }
+            try { recorder = newRecorder(); } catch (Exception e) { recorder = null; }
+            micRestarts++;
+            micStartedAt = System.currentTimeMillis();
+        }
+    }
+
+    private void startAudio() {
+        recorder = newRecorder();
+        micStartedAt = System.currentTimeMillis();
         int outMin = AudioTrack.getMinBufferSize(CallLogic.OUT_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
         player = new AudioTrack.Builder()
                 .setAudioAttributes(new AudioAttributes.Builder()
@@ -135,15 +168,19 @@ final class GeminiLive {
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build();
 
-        recorder.startRecording();
         player.play();
 
         micThread = new Thread(() -> {
             byte[] buf = new byte[1280]; // 40 ms a 16 kHz
             byte[] silence = new byte[1280];
             while (running) {
-                int n = recorder.read(buf, 0, buf.length);
-                if (n <= 0) continue;
+                int n;
+                synchronized (micLock) {
+                    AudioRecord r = recorder;
+                    n = r == null ? -1 : r.read(buf, 0, buf.length);
+                }
+                if (n <= 0) { try { Thread.sleep(40); } catch (InterruptedException e) { return; } continue; }
+                measure(buf, n);
                 send(CallLogic.audioMessage(muted ? silence : buf, n));
             }
         }, "voz-micro");
@@ -163,6 +200,22 @@ final class GeminiLive {
         }, "voz-altavoz");
         micThread.start();
         playThread.start();
+    }
+
+    /** Nivel del micrófono (0–100) y si llegó algo distinto de cero. */
+    private void measure(byte[] buf, int n) {
+        long sum = 0;
+        boolean nonZero = false;
+        for (int i = 0; i + 1 < n; i += 2) {
+            int v = (short) ((buf[i] & 0xff) | (buf[i + 1] << 8));
+            if (v != 0) nonZero = true;
+            sum += (long) v * v;
+        }
+        double rms = Math.sqrt(sum / (double) Math.max(1, n / 2)) / 32768.0;
+        int level = (int) Math.min(100, Math.round(rms * 400)); // voz normal ≈ 20–60
+        micLevel = level;
+        if (level > micPeak) micPeak = level;
+        if (nonZero) lastNonZeroAt = System.currentTimeMillis();
     }
 
     private synchronized void finish(String reason) {
@@ -195,9 +248,11 @@ final class GeminiLive {
             if (micThread != null && micThread != Thread.currentThread()) micThread.join(300);
             if (playThread != null && playThread != Thread.currentThread()) playThread.join(300);
         } catch (InterruptedException ignored) { }
-        try { if (recorder != null) { recorder.stop(); recorder.release(); } } catch (Exception ignored) { }
+        synchronized (micLock) {
+            try { if (recorder != null) { recorder.stop(); recorder.release(); } } catch (Exception ignored) { }
+            recorder = null;
+        }
         try { if (player != null) { player.stop(); player.release(); } } catch (Exception ignored) { }
-        recorder = null;
         player = null;
         playQueue.clear();
     }

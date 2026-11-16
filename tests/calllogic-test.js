@@ -23,6 +23,8 @@ ok('hilo: orden, último estado por id, no leídos y encargos abiertos; mismos d
 const setup = C.setupMessage('gemini-3.8-live', 'Charon', 'instr', C.tools(false)).setup;
 assert.strictEqual(setup.model, 'models/gemini-3.8-live'); assert.deepStrictEqual(setup.generationConfig.responseModalities, ['AUDIO']);
 assert.strictEqual(setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Charon');
+assert.strictEqual(setup.realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity, undefined); // inicio de voz normal: con LOW no oía al dueño
+assert.strictEqual(setup.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity, 'END_SENSITIVITY_LOW');
 assert.deepStrictEqual(setup.inputAudioTranscription, {}); assert.deepStrictEqual(setup.outputAudioTranscription, {});
 assert.deepStrictEqual(setup.tools[0].functionDeclarations.map((d) => d.name), ['colgar', 'dejar_encargo', 'ver_pendientes']);
 assert.deepStrictEqual(C.tools(true)[0].functionDeclarations.map((d) => d.name), ['colgar', 'dejar_encargo']);
