@@ -11,20 +11,21 @@ const assert = require('assert');
   const stored = () => p.evaluate(() => JSON.parse(localStorage.getItem('prod.routine') || '[]'));
   const total = () => p.locator('#inc-total').innerText();
   const add = async ({ client, amount, date, type }) => {
-    await p.click('[data-action=inc-add]'); await p.fill('#inc-client', client); await p.fill('#inc-amount', amount);
+    await p.click('#header-tab-actions [data-action=inc-add]'); await p.fill('#inc-client', client); await p.fill('#inc-amount', amount);
     if (date) await p.fill('#inc-date', date); if (type) await p.selectOption('#inc-type', type);
     await p.click('[data-action=inc-save]');
   };
 
-  // ---- Trabajo tiene dos vistas; Ingresos empieza en el mes actual y vacío
+  // ---- Trabajo tiene dos vistas; Ingresos empieza en el mes actual y vacío (sin mostrar «$ 0»)
   await p.click('.nav-btn[data-tab=work]'); assert.deepStrictEqual(await p.locator('#work-view button').allInnerTexts(), ['Oportunidades', 'Ingresos']);
   assert((await p.locator('#work-body').innerText()).includes('Aún no hay oportunidades'));
-  await p.click('#work-view [data-view=income]'); assert.strictEqual(await p.locator('#inc-month').innerText(), 'Octubre 2026'); assert.strictEqual(await total(), '$ 0');
-  assert((await p.locator('#work-body').innerText()).includes('No hay ingresos en octubre 2026')); assert(await p.locator('[data-action=inc-next]').isDisabled());
-  ok('vista Ingresos: mes actual, total en cero');
+  await p.click('#work-view [data-view=income]'); assert.strictEqual(await p.locator('#inc-month').innerText(), 'Octubre 2026');
+  assert.strictEqual(await p.locator('#inc-total').count(), 0); assert(!(await p.locator('#work-body').innerText()).includes('$ 0'));
+  assert((await p.locator('#work-body').innerText()).includes('No hay ingresos en octubre')); assert(await p.locator('[data-action=inc-next]').isDisabled());
+  ok('vista Ingresos: mes actual, vacío sin «$ 0»');
 
   // ---- añadir: valida cliente y monto; la fecha propone hoy
-  await p.click('[data-action=inc-add]'); assert.strictEqual(await p.inputValue('#inc-date'), '2026-10-07'); await p.click('[data-action=inc-save]'); assert((await p.locator('#wk-error').innerText()).includes('cliente'));
+  await p.click('#header-tab-actions [data-action=inc-add]'); assert.strictEqual(await p.inputValue('#inc-date'), '2026-10-07'); await p.click('[data-action=inc-save]'); assert((await p.locator('#wk-error').innerText()).includes('cliente'));
   await p.fill('#inc-client', 'Ana Pérez'); await p.fill('#inc-amount', '150.000,50'); await p.click('[data-action=inc-save]'); assert((await p.locator('#wk-error').innerText()).includes('sin centavos'));
   await p.fill('#inc-amount', '150.000'); await p.selectOption('#inc-type', 'presencial'); await p.click('[data-action=inc-save]');
   await add({ client: 'Tienda Luna', amount: '80000', date: '2026-10-02' });
@@ -43,7 +44,7 @@ const assert = require('assert');
   await p.locator('.inc-row', { hasText: 'Ana' }).click(); await p.click('[data-action=inc-delete]'); await p.click('#confirm-ok'); assert.strictEqual(await total(), '$ 120.000');
   await p.click('#work-view [data-view=opps]'); assert((await p.locator('#work-body').innerText()).includes('Aún no hay oportunidades')); // los ingresos no son oportunidades
   await p.reload(); await p.click('.nav-btn[data-tab=work]'); await p.click('#work-view [data-view=income]'); assert.strictEqual(await total(), '$ 120.000');
-  await p.click('[data-action=inc-add]'); await p.keyboard.press('Escape'); assert.strictEqual(await p.locator('#work-sheet.hidden').count(), 1); assert.strictEqual(await total(), '$ 120.000');
+  await p.click('#header-tab-actions [data-action=inc-add]'); await p.keyboard.press('Escape'); assert.strictEqual(await p.locator('#work-sheet.hidden').count(), 1); assert.strictEqual(await total(), '$ 120.000');
   ok('editar y eliminar; Escape cierra sin guardar; no se mezcla con oportunidades');
 
   // ---- datos de otro dispositivo: el texto nunca es HTML; los registros dañados no suman

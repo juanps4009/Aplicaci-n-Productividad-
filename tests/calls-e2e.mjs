@@ -76,6 +76,7 @@ ok('sin código de sincronización: la hoja de Claude explica cómo empezar');
 // ---- crear código y que Claude escriba con la herramienta
 await p.click('#open-settings'); await p.evaluate(() => { document.querySelector('#sync-card').open = true; });
 await p.click('[data-action=sync-create]');
+await p.click('[data-action=sync-show]'); // v3: el código sale oculto hasta tocar «Mostrar»
 await p.waitForFunction(() => /\w{4}-\w{4}/.test(document.querySelector('#sync-body').innerText));
 await p.click('#close-settings');
 const code = await p.evaluate(() => state.sync.code);

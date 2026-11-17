@@ -10,6 +10,7 @@ const assert = require('assert');
   const ok = (n) => console.log('OK', n);
   const stored = () => p.evaluate(() => JSON.parse(localStorage.getItem('prod.routine') || '[]'));
   const add = async (text, freq, offDays = []) => {
+    await p.locator('[data-action=rt-add]').scrollIntoViewIfNeeded();
     await p.click('[data-action=rt-add]'); await p.fill('#rt-text', text);
     if (freq !== 'daily') await p.click(`#rt-freq [data-freq=${freq}]`);
     for (const d of offDays) await p.click(`#rt-days [data-day="${d}"]`);
@@ -31,37 +32,42 @@ const assert = require('assert');
   assert.strictEqual(await p.locator('.rt-item.editing').count(), 5); assert((await row('Revisar oportunidades').innerText()).includes('lunes, miércoles, viernes'));
   await p.click('[data-action=rt-edit]');
   assert.strictEqual(await p.locator('.rt-item').count(), 4); assert.strictEqual(await row('Ir al gimnasio').count(), 0); // hoy (miércoles) no toca
-  assert.strictEqual(await p.locator('#routine-count').innerText(), '0 de 4 hechos');
-  assert.deepStrictEqual(await p.locator('.rt-group-head span:first-child').allInnerTexts(), ['HOY', 'ESTA SEMANA', 'ESTE MES']);
+  assert.strictEqual(await p.locator('#routine-count').innerText(), '0 de 4 hechos hoy');
+  assert.deepStrictEqual(await p.locator('.rt-group-head span:first-child').allInnerTexts(), ['Hoy', 'Esta semana', 'Este mes']);
   ok('añadir pendientes diarios (con días), semanales y mensuales; hoy solo se ve lo que toca');
 
   // ---- un toque marca, otro desmarca
   await row('Hacer resumen del libro').locator('[data-action=rt-toggle]').click();
-  assert.strictEqual(await row('Hacer resumen del libro').evaluate((e) => e.classList.contains('done')), true); assert.strictEqual(await p.locator('#routine-count').innerText(), '1 de 4 hechos');
+  assert.strictEqual(await row('Hacer resumen del libro').evaluate((e) => e.classList.contains('done')), true); assert.strictEqual(await p.locator('#routine-count').innerText(), '1 de 4 hechos hoy');
   assert.strictEqual(await row('Hacer resumen del libro').locator('[role=checkbox]').getAttribute('aria-checked'), 'true');
-  await row('Hacer resumen del libro').locator('[data-action=rt-toggle]').click(); assert.strictEqual(await p.locator('#routine-count').innerText(), '0 de 4 hechos');
+  await row('Hacer resumen del libro').locator('[data-action=rt-toggle]').click(); assert.strictEqual(await p.locator('#routine-count').innerText(), '0 de 4 hechos hoy');
   await row('Hacer resumen del libro').locator('[data-action=rt-toggle]').click(); await row('Planear la semana').locator('[data-action=rt-toggle]').click(); await row('Pagar cuentas').locator('[data-action=rt-toggle]').click();
-  assert.strictEqual(await p.locator('#routine-count').innerText(), '3 de 4 hechos'); assert.strictEqual(await p.locator('.rt-bar span').evaluate((e) => e.style.width), '75%');
+  assert.strictEqual(await p.locator('#routine-count').innerText(), '3 de 4 hechos hoy'); assert.strictEqual(await p.locator('.rt-bar span').evaluate((e) => e.style.getPropertyValue('--p')), '0.75');
   let data = await stored(); assert.deepStrictEqual(data.filter((r) => r.kind === 'period').map((r) => r.id).sort(), ['p:2026-10', 'p:2026-10-07', 'p:2026-W41']);
   await p.reload(); await p.clock.resume?.(); assert.strictEqual(await p.locator('#page-title').innerText(), 'Rutina'); assert.strictEqual(await p.locator('.rt-item.done').count(), 3);
   ok('marcar con un toque (y desmarcar); se guarda y sigue tras recargar');
 
-  // ---- tarjeta «Tu semana»: porcentaje y un punto por día
-  const dots = () => p.locator('.rt-week-card .rt-dot').evaluateAll((els) => els.map((e) => e.className.replace('rt-dot d-', '')));
-  assert.strictEqual(await p.locator('#routine-week-pct').innerText(), '100 %'); assert.deepStrictEqual(await dots(), ['empty', 'empty', 'today', 'future', 'future', 'future', 'future']);
-  assert.deepStrictEqual(await p.locator('.rt-week-card .rt-dot small').allInnerTexts(), ['L', 'M', 'X', 'J', 'V', 'S', 'D']);
-  await row('Revisar oportunidades').locator('[data-action=rt-toggle]').click(); assert.deepStrictEqual((await dots())[2], 'full'); await row('Revisar oportunidades').locator('[data-action=rt-toggle]').click(); assert.deepStrictEqual((await dots())[2], 'today');
-  await p.click('[data-action=rt-edit]'); assert.strictEqual(await p.locator('.rt-week-card').count(), 0); await p.click('[data-action=rt-edit]');
-  ok('tarjeta «Tu semana»: porcentaje, un punto por día (hoy se llena al completar todo)');
+  // ---- pestaña «Semana»: cumplimiento, días y celdas táctiles; el modo edición oculta el pulso
+  await p.click('#routine-view [data-view=week]');
+  assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), '2 de 2 cumplidos');
+  assert.deepStrictEqual(await p.locator('.rt-letters b').allInnerTexts(), ['L', 'M', 'X', 'J', 'V', 'S', 'D']);
+  assert.strictEqual(await p.locator('.rt-letters b.today').innerText(), 'X');
+  const wedOpp = p.locator('.rt-grid-row', { hasText: 'Revisar oportunidades' }).locator('[data-action=rt-cell][data-date="2026-10-07"]');
+  await wedOpp.click(); assert.strictEqual(await wedOpp.getAttribute('aria-checked'), 'true'); assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), '3 de 3 cumplidos');
+  await wedOpp.click(); assert.strictEqual(await wedOpp.getAttribute('aria-checked'), 'false'); assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), '2 de 2 cumplidos');
+  await p.click('#routine-view [data-view=today]');
+  await p.click('[data-action=rt-edit]'); assert.strictEqual(await p.locator('.rt-pulse').count(), 0); await p.click('[data-action=rt-edit]');
+  ok('pestaña «Semana»: días, celdas táctiles que actualizan el cumplimiento; en edición se oculta el pulso');
 
   // ---- al día siguiente lo diario empieza de nuevo; lo semanal y mensual siguen hechos
   await p.clock.fastForward(24 * 3600 * 1000 + 40000); await p.waitForTimeout(200);
   assert.strictEqual(await row('Hacer resumen del libro').evaluate((e) => e.classList.contains('done')), false); assert.strictEqual(await row('Ir al gimnasio').count(), 1); assert.strictEqual(await row('Revisar oportunidades').count(), 0);
-  assert.strictEqual(await row('Planear la semana').evaluate((e) => e.classList.contains('done')), true); assert.strictEqual(await p.locator('#routine-count').innerText(), '2 de 4 hechos');
+  assert.strictEqual(await row('Planear la semana').evaluate((e) => e.classList.contains('done')), true); assert.strictEqual(await p.locator('#routine-count').innerText(), '2 de 4 hechos hoy');
   ok('jueves: lo diario se reinicia solo y cambian los que tocan; semana y mes siguen marcados');
-  assert.strictEqual(await p.locator('#routine-week-pct').innerText(), '67 %'); assert.deepStrictEqual(await dots(), ['empty', 'empty', 'partial', 'today', 'future', 'future', 'future']);
-  await p.click('.rt-week-card'); assert.strictEqual(await p.locator('#routine-view button.active').innerText(), 'Resumen semanal'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '5–11 oct');
-  await p.click('#routine-view [data-view=today]'); ok('la tarjeta refleja el día anterior a medias y abre el resumen semanal');
+  await p.click('#routine-view [data-view=week]');
+  assert.strictEqual(await p.locator('#routine-view button.active').innerText(), 'Semana'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '5–11 oct');
+  assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), '2 de 3 cumplidos'); assert.strictEqual(await p.locator('.rt-letters b.today').innerText(), 'J');
+  await p.click('#routine-view [data-view=today]'); ok('la vista Semana refleja el día anterior a medias y vuelve a Hoy');
 
   // ---- resumen semanal
   await p.click('#routine-view [data-view=week]');
@@ -70,11 +76,11 @@ const assert = require('assert');
   assert.deepStrictEqual(await cells('Hacer resumen del libro'), ['na', 'na', 'done', 'pending', 'future', 'future', 'future']); // se creó el miércoles
   assert.deepStrictEqual(await cells('Revisar oportunidades'), ['na', 'na', 'miss', 'na', 'future', 'na', 'na']);
   assert.deepStrictEqual(await cells('Ir al gimnasio'), ['na', 'na', 'na', 'pending', 'future', 'future', 'future']);
-  assert.strictEqual(await p.locator('.rt-pct').innerText(), '67 %'); assert.strictEqual(await p.locator('.rt-sum-list li.ok').count(), 2);
-  assert((await p.locator('.rt-review').innerText()).includes('Aún no hay comentario')); assert(await p.locator('[data-action=rt-week-next]').isDisabled());
-  await p.click('[data-action=rt-week-prev]'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '28 sep – 4 oct'); assert.strictEqual(await p.locator('.rt-pct').innerText(), '—');
+  assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), '2 de 3 cumplidos'); assert.strictEqual(await p.locator('.rt-sum-list li.ok').count(), 2);
+  assert.strictEqual(await p.locator('.rt-review').count(), 0); assert(await p.locator('[data-action=rt-week-next]').isDisabled());
+  await p.click('[data-action=rt-week-prev]'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '28 sep – 4 oct'); assert.strictEqual(await p.locator('.rt-pulse-text').innerText(), 'Sin datos en esta semana');
   await p.click('[data-action=rt-week-next]'); assert.strictEqual(await p.locator('#routine-week-label').innerText(), '5–11 oct');
-  ok('resumen semanal: cuadrícula por día, porcentaje, semanales/mensuales y navegación entre semanas');
+  ok('resumen semanal: cuadrícula por día, cumplimiento, semanales/mensuales y navegación entre semanas');
 
   // ---- comentario de la semana (lo escribe Claude con el programa de escritorio): se muestra como texto, nunca como HTML
   await p.evaluate(() => { const l = JSON.parse(localStorage.getItem('prod.routine')); l.push({ id: 'r:2026-W41', kind: 'review', week: '2026-W41', text: 'Buen ritmo con los resúmenes.\nFaltó <b>revisar</b> oportunidades <img src=x onerror=window.__pwned=1>', by: 'Claude', at: 1 }); localStorage.setItem('prod.routine', JSON.stringify(l)); });
@@ -85,9 +91,17 @@ const assert = require('assert');
   // ---- editar: renombrar, cambiar frecuencia, reordenar y eliminar
   await p.click('#routine-view [data-view=today]'); await p.click('[data-action=rt-edit]');
   assert.deepStrictEqual(await p.locator('.rt-group[data-freq=daily] .rt-text').evaluateAll((e) => e.map((x) => x.firstChild.textContent)), ['Hacer resumen del libro', 'Revisar oportunidades', 'Ir al gimnasio']);
-  await row('Ir al gimnasio').locator('[data-action=rt-up]').click(); await row('Ir al gimnasio').locator('[data-action=rt-up]').click();
+  const grab = row('Ir al gimnasio').locator('[data-action=rt-grab]');
+  await grab.scrollIntoViewIfNeeded();
+  const box = await grab.boundingBox();
+  const rowH = await row('Ir al gimnasio').evaluate((e) => e.offsetHeight || 52);
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await p.mouse.down();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - rowH * 2, { steps: 6 });
+  await p.mouse.up();
   assert.deepStrictEqual(await p.locator('.rt-group[data-freq=daily] .rt-text').evaluateAll((e) => e.map((x) => x.firstChild.textContent)), ['Ir al gimnasio', 'Hacer resumen del libro', 'Revisar oportunidades']);
-  assert(await row('Ir al gimnasio').locator('[data-action=rt-up]').isDisabled());
+  await row('Ir al gimnasio').locator('[data-action=rt-grab]').focus(); await p.keyboard.press('ArrowUp');
+  assert.deepStrictEqual(await p.locator('.rt-group[data-freq=daily] .rt-text').evaluateAll((e) => e.map((x) => x.firstChild.textContent)), ['Ir al gimnasio', 'Hacer resumen del libro', 'Revisar oportunidades']);
   await row('Pagar cuentas').locator('[data-action=rt-item-edit]').click(); await p.fill('#rt-text', 'Pagar servicios'); await p.click('#rt-freq [data-freq=weekly]'); await p.click('[data-action=rt-save]');
   assert.strictEqual(await p.locator('.rt-group[data-freq=weekly] .rt-item').count(), 2); assert.strictEqual(await p.locator('.rt-group[data-freq=monthly]').count(), 0);
   await row('Planear la semana').locator('[data-action=rt-item-edit]').click(); await p.click('[data-action=rt-delete]'); await p.click('#confirm-ok');

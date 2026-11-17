@@ -166,7 +166,7 @@
     return L.join("\n");
   }
 
-  const api = { STATUSES, STATUS_LABEL, TYPES, TYPE_LABEL, MAX_TITLE, MAX_NOTE, MAX_URL, MAX_CLIENT, isDate, parseAmount, money, addIncome, incomes, monthTotal, monthLabel, shiftMonth, cleanUrl, clean, cleanList, opps, findByUrl, add, update, remove, setStatus, daysLeft, closeInfo, closingSoon, counts, toMarkdown };
+  const api = { STATUSES, STATUS_LABEL, TYPES, TYPE_LABEL, MAX_TITLE, MAX_NOTE, MAX_URL, MAX_SOURCE, MAX_CLIENT, isDate, parseAmount, money, addIncome, incomes, monthTotal, monthLabel, shiftMonth, cleanUrl, clean, cleanList, opps, findByUrl, add, update, remove, setStatus, daysLeft, closeInfo, closingSoon, counts, toMarkdown };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Work = api;
 })(typeof self !== "undefined" ? self : this);

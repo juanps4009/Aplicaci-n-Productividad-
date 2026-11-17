@@ -18,6 +18,7 @@ await p.goto('http://localhost:8123/');
 await p.evaluate(()=>navigator.serviceWorker.ready);
 const ok=n=>console.log('OK',n);
 // tarea con recordatorio diario
+await p.setViewportSize({width:1280,height:800}); // el campo de arriba solo existe en computador
 await p.fill('#task-input','Entregar informe'); await p.click('#task-form button[type=submit]');
 await p.click('.task-item [data-action=menu-task]'); await p.click('#menu-remind'); await p.click('[data-action=rem-add]'); await p.click('[data-action=rem-kind][data-kind=daily]'); await p.fill('#rem-time','18:00'); await p.click('[data-action=rem-save]'); await p.click('#rem-close');
 await p.click('#open-settings');

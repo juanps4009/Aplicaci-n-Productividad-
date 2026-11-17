@@ -29,7 +29,7 @@ const ok = (n) => console.log('OK', n);
 const tasks = (p) => p.$$eval('.task-item .task-text', e => e.map(x => x.textContent));
 const openSyncCard = (p) => p.evaluate(() => { document.querySelector('#sync-card').open = true; });
 const openSettings = async (p) => { if (await p.locator('#settings.hidden').count()) await p.click('#open-settings'); await openSyncCard(p); };
-const addTask = async (p, text) => { await p.fill('#task-input', text); await p.click('#task-form button[type=submit]'); };
+const addTask = async (p, text) => { await p.click('#qc-fab'); await p.fill('#qc-input', text); await p.click('#qc-save'); };
 const syncNow = async (p) => { await p.click('[data-action=sync-now]'); await p.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText), null, { timeout: 5000 }); await p.waitForTimeout(150); };
 
 const A = await device('A-celular'), B = await device('B-pc', 'dark');
@@ -56,7 +56,9 @@ await addTask(A, 'Tarea A1'); await addTask(A, 'Tarea A2');
 await A.click('.nav-btn[data-tab=books]'); await A.click('#new-book'); await A.fill('[data-field=title]', 'Libro de A'); await A.fill('[data-field=author]', 'Autor A'); await A.click('[data-action=done]'); await A.click('#book-back');
 await A.click('.nav-btn[data-tab=tasks]'); await openSettings(A);
 await openSettings(A); await A.waitForTimeout(500); await A.waitForSelector('[data-action=sync-create]'); assert.strictEqual(await A.locator('#server-adv').evaluate(e=>e.open), false); ok('con servidor de la app: se puede crear código sin configurar nada (servidor propio plegado)');
-await A.click('[data-action=sync-create]'); await A.waitForSelector('.code-box'); await A.click('#close-settings'); assert.strictEqual(await A.locator('#sync-badge:not(.hidden)').count(), 1); await A.click('#open-sync');
+await A.click('[data-action=sync-create]'); await A.waitForSelector('.code-box'); await A.click('#close-settings'); assert.strictEqual(await A.locator('#sync-badge:not(.hidden)').count(), 1); await A.click('#open-settings'); if (!(await A.locator('#sync-card').evaluate(e => e.open))) await A.click('#sync-card > summary'); // vinculado y al día, la nube se oculta: se entra por Ajustes
+assert.strictEqual(await A.locator('.code-box.is-masked').count(), 1); assert(!/[0-9A-Z]{4}-[0-9A-Z]{4}/.test(await A.locator('.code-box').innerText())); // v3: oculto por defecto
+await A.click('[data-action=sync-show]');
 const code = (await A.locator('.code-box').innerText()).trim();
 assert(/^[0-9A-Z]{4}(-[0-9A-Z]{4}){4}$/.test(code)); await A.waitForFunction(() => /Sincronizado/.test(document.querySelector('#sync-body').innerText));
 console.log('  código:', code); ok('A crea código y sube sus datos');
@@ -126,12 +128,12 @@ await B.locator('.rt-item [data-action=rt-toggle]').click(); await B.waitForTime
 await A.waitForFunction(() => document.querySelectorAll('.rt-item').length === 1 && !document.querySelector('.rt-item.done'), null, { timeout: 5000 }); ok('B lo desmarca y A lo ve');
 await B.click('.nav-btn[data-tab=books]'); assert.strictEqual(await B.locator('.book-card').count(), 1); assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); ok('la rutina no aparece entre los resúmenes');
 // ---- oportunidades (pestaña Trabajo): mismo canal cifrado; el estado que cambia B vuelve a A
-await A.click('.nav-btn[data-tab=work]'); await A.click('[data-action=wk-add]'); await A.fill('#wk-title', 'Redactor remoto'); await A.fill('#wk-url', 'https://empleos.example.com/oferta/1'); await A.click('[data-action=wk-save]'); await A.waitForTimeout(1800);
+await A.click('.nav-btn[data-tab=work]'); await A.click('#header-tab-actions [data-action=wk-add]'); await A.fill('#wk-title', 'Redactor remoto'); await A.fill('#wk-url', 'https://empleos.example.com/oferta/1'); await A.click('[data-action=wk-save]'); await A.waitForTimeout(1800);
 const opRows = env.DB.raw.prepare("SELECT col, data FROM records WHERE id LIKE 'rt:o:%'").all(); assert.strictEqual(opRows.length, 1); assert(opRows[0].col === 'books' && opRows[0].data.startsWith('e1:') && !/Redactor|empleos/.test(opRows[0].data));
 await B.click('.nav-btn[data-tab=work]'); await B.evaluate(() => window.dispatchEvent(new Event('online')));
 await B.waitForFunction(() => document.querySelector('.wk-card .wk-title')?.textContent === 'Redactor remoto', null, { timeout: 5000 }); assert.strictEqual(await B.locator('.wk-card a.wk-link').getAttribute('href'), 'https://empleos.example.com/oferta/1');
-await B.click('.wk-card [data-action=wk-status]'); await B.click('#work-status-list [data-status=applied]'); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
-await A.waitForFunction(() => document.querySelector('.wk-card .wk-status')?.textContent.startsWith('Apliqué'), null, { timeout: 5000 }); ok('oportunidades: creada en A, aparece en B; B la marca «apliqué» y A lo ve');
+await B.click('.wk-card [data-action=wk-edit]'); await B.selectOption('#wk-state', 'applied'); await B.click('[data-action=wk-save]'); await B.waitForTimeout(1800); await A.evaluate(() => window.dispatchEvent(new Event('online')));
+await A.waitForFunction(() => document.querySelector('.wk-group[data-status=applied] .wk-card .wk-title')?.textContent === 'Redactor remoto', null, { timeout: 5000 }); ok('oportunidades: creada en A, aparece en B; B la marca «apliqué» y A lo ve');
 assert.strictEqual((await B.evaluate(() => JSON.parse(localStorage.getItem('prod.books')))).length, 1); assert.strictEqual((await A.evaluate(() => JSON.parse(localStorage.getItem('prod.routine')).filter((r) => r.kind === 'item'))).length, 1); ok('no se mezclan con los resúmenes ni con la rutina');
 await A.click('.nav-btn[data-tab=tasks]'); await B.click('.nav-btn[data-tab=tasks]');
 
@@ -151,7 +153,7 @@ await D.route(SERVER + '/**', async (route) => { const req = route.request(); co
 await D.goto('http://localhost:8123/'); await D.click('#open-settings'); await openSyncCard(D);
 assert((await D.locator('#widget-block').innerText()).includes('Primero crea tu código')); ok('widget: antes de sincronizar pide crear el código');
 await D.click('[data-action=sync-create]'); await D.waitForSelector('#widget-connect');
-const href = await D.getAttribute('#widget-connect', 'href'); const codeD = (await D.locator('.code-box').innerText()).trim().replace(/-/g, '');
+const href = await D.getAttribute('#widget-connect', 'href'); await D.click('[data-action=sync-show]'); const codeD = (await D.locator('.code-box').innerText()).trim().replace(/-/g, '');
 assert(href.startsWith('intent://link?') && href.includes('code=' + codeD) && href.includes('server=' + encodeURIComponent(SERVER)) && href.includes('#Intent;scheme=pendientes;package=app.productividad.widget;S.browser_fallback_url=' + encodeURIComponent('https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk') + ';end'));
 console.log('  ', href.slice(0, 120) + '…'); ok('botón «Conectar el widget» (Android): enlace intent con código, servidor, app y descarga DIRECTA del APK como respaldo');
 assert.strictEqual(await D.locator('.steps li').count(), 6); assert.strictEqual(await D.getAttribute('#widget-update', 'href'), 'https://github.com/x/y/releases/download/widget-latest/pendientes-widget.apk'); ok('pasos de instalación y de actualización visibles, y botón «Descargar la versión nueva» directo al archivo');

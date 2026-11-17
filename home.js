@@ -1,6 +1,6 @@
 "use strict";
-/* Inicio: un tablero con tu día (tareas + rutina), lo importante hoy y una tarjeta por pestaña.
-   Usa el estado y las funciones de app.js (se carga después). */
+/* Inicio v3: saludo encima del titular con fecha en es-CO, pulso de 4 px, una sola caja «Lo importante hoy»
+   y «Tus áreas» sin tarjeta ni chevrons. Usa el estado y las funciones de app.js (se carga después). */
 
 const HOME_ICON = {
   tasks: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
@@ -11,7 +11,6 @@ const HOME_ICON = {
   book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
   idea: '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
-  up: '<path d="M3 17l6-6 4 4 8-8M14 7h7v7"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
 };
 const homeSvg = (name, sw = 2) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HOME_ICON[name]}</svg>`;
@@ -20,6 +19,12 @@ const homeKeep = new Set(); // tareas marcadas desde el Inicio: siguen a la vist
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 function greeting(h) { return h < 5 ? "Buenas noches" : h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"; }
+
+function formatHomeDate(d) {
+  const weekday = d.toLocaleDateString("es-CO", { weekday: "long" });
+  const month = d.toLocaleDateString("es-CO", { month: "short" }).replace(/\.$/, "");
+  return `${capital(weekday)} ${d.getDate()} ${month}`;
+}
 
 /* Tareas de hoy: las que vencen hoy (hechas o no) y las vencidas sin hacer */
 function dayTasks(now) {
@@ -52,32 +57,37 @@ function routineStreak(now) {
 }
 function shiftDay(s, k) { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + k); return dateStr(d); }
 
-
 function homeTaskHTML(t, now) {
   const late = t.due && t.due < now && !t.done;
-  const meta = [late ? `Vencida · ${dueLabel(t.due)}` : t.due ? dueLabel(t.due) : "", PRIORITIES.find((p) => p.key === t.priority)?.label].filter(Boolean).join(" · ");
+  const meta = late ? `Vencida · ${dueLabel(t.due)}` : t.due === now ? "Hoy" : t.due ? dueLabel(t.due) : "Sin fecha";
+  const prio = PRIORITIES.find((p) => p.key === t.priority);
   return `
-    <button class="home-task ${t.done ? "done" : ""}" data-action="home-toggle" data-id="${esc(t.id)}" data-prio="${esc(t.priority || "")}" role="checkbox" aria-checked="${!!t.done}">
-      <span class="chk">${homeSvg("check", 3)}</span>
-      <span class="t"><b>${RT.toHTML(t.text, t.marks)}</b><small class="${late ? "late" : ""}">${esc(meta)}</small></span>
-    </button>`;
+    <li class="home-task ${t.done ? "done" : ""}" data-id="${esc(t.id)}" data-prio="${esc(t.priority || "")}">
+      <button type="button" class="home-chk-btn" data-action="home-toggle" role="checkbox" aria-checked="${!!t.done}" aria-label="${esc(t.text)}">
+        <span class="chk">${homeSvg("check", 3)}</span>
+      </button>
+      <div class="home-task-body">
+        <span class="home-task-title">${RT.toHTML(t.text, t.marks)}</span>
+        <span class="home-task-meta ${late ? "late" : ""}">${esc(meta)}</span>
+      </div>
+      <span class="dot" ${prio ? `role="img" aria-label="Prioridad ${esc(prio.label.toLowerCase())}"` : 'aria-hidden="true"'}></span>
+    </li>`;
 }
 
 function renderHome() {
   const el = $("#tab-home");
   if (!el || state.tab !== "home") return;
   const now = today(), d = new Date();
-  $("#page-title").textContent = greeting(d.getHours());
+  const eyebrow = $("#page-eyebrow");
+  if (eyebrow) {
+    eyebrow.textContent = greeting(d.getHours());
+    eyebrow.classList.remove("hidden");
+  }
+  $("#page-title").textContent = formatHomeDate(d);
 
   const tk = dayTasks(now), rt = Routine.today(state.routine, now);
   const total = tk.list.length + rt.total, doneAll = tk.done + rt.done;
-  const pct = total ? Math.round((doneAll / total) * 100) : 0;
-  const a = total ? (tk.done / total) * 100 : 0, b = total ? (doneAll / total) * 100 : 0;
-  const left = total - doneAll;
-  const msg = !total ? "No tienes nada con fecha para hoy. Buen momento para adelantar algo."
-    : !left ? "Día completo. Puedes descansar tranquilo."
-      : left <= 2 ? `Ya casi: te ${left === 1 ? "falta 1" : `faltan ${left}`}.`
-        : `Te faltan ${plural(tk.list.length - tk.done, "tarea", "tareas")} y ${plural(rt.total - rt.done, "hábito", "hábitos")}.`;
+  const ratio = total ? doneAll / total : 0;
 
   const focus = focusTasks(now);
   const streak = routineStreak(now);
@@ -86,85 +96,83 @@ function renderHome() {
   const c = Work.counts(state.work), active = c.review + c.applied + c.replied;
   const soon = Work.closingSoon(state.work, now, 3).length;
   const income = Work.monthTotal(state.work, now.slice(0, 7));
-  const lastBook = [...state.books].filter((x) => !x.isNew).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0];
+  const booksReal = state.books.filter((x) => !x.isNew);
+  const readingBook = Reading.reading(booksReal).sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0];
+  const lastBook = readingBook || [...booksReal].sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0))[0];
 
-  // Resumen de cada área: una fila por área, texto corto y tranquilo (sin cajas ni palabras gigantes)
   const pendingAll = state.tasks.filter((t) => !t.done).length, todayLeft = tk.list.length - tk.done;
-  const area = (go, cls, icon, name, info, view = "") => `<button class="area ${cls}" data-go="${go}"${view ? ` data-view="${view}"` : ""}>
+  const area = (go, cls, icon, name, info, view = "") => `<button type="button" class="area ${cls}" data-go="${go}"${view ? ` data-view="${view}"` : ""}>
       <span class="area-ico" aria-hidden="true">${homeSvg(icon)}</span>
       <span class="area-name">${name}</span>
       <span class="area-info">${info}</span>
     </button>`;
   const hot = (txt) => `<em class="hot">${txt}</em>`;
+  const pendInfo = (todayLeft > 0 || tk.overdue > 0)
+    ? [todayLeft ? `${todayLeft} hoy` : "", tk.overdue ? hot(plural(tk.overdue, "vencida", "vencidas")) : ""].filter(Boolean).join(" · ")
+    : (pendingAll ? plural(pendingAll, "pendiente", "pendientes") : "Nada para hoy");
+  const rutInfo = hasRoutine
+    ? (rt.total ? `${rt.done} de ${rt.total}${streak ? ` · racha ${streak} d` : ""}` : "Sin hábitos hoy")
+    : "Sin hábitos hoy";
   const tiles = [
-    area("tasks", "t-tasks", "tasks", "Pendientes",
-      [todayLeft ? plural(todayLeft, "para hoy", "para hoy") : pendingAll ? "Nada para hoy" : "Todo al día",
-        tk.overdue ? hot(plural(tk.overdue, "vencida", "vencidas")) : pendingAll && todayLeft ? `${pendingAll} en total` : ""].filter(Boolean).join(" · ")),
-    area("routine", "t-routine", "flame", "Rutina",
-      hasRoutine ? `Hoy ${rt.done} de ${rt.total}${streak ? ` · racha de ${plural(streak, "día", "días")}` : ""}` : "Aún no hay hábitos"),
+    area("tasks", "t-tasks", "tasks", "Pendientes", pendInfo),
+    area("routine", "t-routine", "routine", "Rutina", rutInfo),
     income.count
-      ? area("work", "t-work", "money", "Ingresos", `${Work.money(income.total)} este mes${soon ? ` · ${hot(`${plural(soon, "oferta cierra", "ofertas cierran")} pronto`)}` : ""}`, "income")
+      ? area("work", "t-work", "work", "Ingresos", Work.money(income.total), "income")
       : area("work", "t-work", "work", "Trabajo",
-        active ? [plural(active, "oferta activa", "ofertas activas"), soon ? hot(`${plural(soon, "cierra", "cierran")} pronto`) : c.review ? `${c.review} por revisar` : ""].filter(Boolean).join(" · ") : "Sin ofertas guardadas", "opps"),
+        active ? (soon ? hot(`${plural(soon, "oferta cierra", "ofertas cierran")} pronto`) : plural(active, "oferta activa", "ofertas activas")) : "Sin ofertas", "opps"),
     area("books", "t-books", "book", "Resúmenes",
-      lastBook ? `<span class="area-book">${RT.toHTML(lastBook.title, lastBook.titleMarks) || "Sin título"}</span>` : "Aún no hay resúmenes"),
+      lastBook ? `<span class="area-book">${RT.toHTML(lastBook.title, lastBook.titleMarks) || "Sin título"}</span>` : "Sin resúmenes"),
   ];
 
-  // Tu semana: porcentaje de cada día de la rutina y comparación con la semana anterior
-  const prev = Routine.weekStats(state.routine, Routine.shiftWeek ? Routine.shiftWeek(wkKey, -1) : wkKey, now);
-  const diff = wk.pct !== null && prev.pct !== null && Routine.shiftWeek ? wk.pct - prev.pct : null;
   const bars = wk.days.map((x, i) => {
     const v = x.total ? x.done / x.total : 0;
-    const cls = wk.dates && wk.dates[i] === now ? "today" : x.state === "future" ? "future" : "";
-    return `<div class="${cls}"><i style="height:${x.state === "future" || !x.total ? 6 : Math.max(6, Math.round(v * 72))}px"></i><small>${Routine.DAY_SHORT[i]}</small></div>`;
+    const isToday = wk.dates && wk.dates[i] === now;
+    const barRatio = x.state === "future" || !x.total ? 0.05 : Math.max(0.06, v);
+    const label = isToday ? "hoy" : (Routine.DAY_NAME[i] || "").slice(0, 3);
+    return `<div class="${isToday ? "today" : x.state === "future" ? "future" : ""}">
+      <i style="--v:${barRatio}" role="img" aria-label="${esc(isToday ? "Hoy" : Routine.DAY_NAME[i])}: ${x.done} de ${x.total}"></i>
+      <small>${esc(label)}</small>
+    </div>`;
   }).join("");
+
+  const allFocusDone = focus.length > 0 && focus.every((t) => t.done);
 
   el.innerHTML = `
     <div class="home">
-      <p class="home-date">${esc(capital(d.toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
       ${typeof claudeHomeStrip === "function" ? claudeHomeStrip() : ""}
-      <section class="card home-day" aria-label="Tu día">
-        <div class="home-day-top">
-          <div class="ring" style="--day-ring: conic-gradient(var(--ind-mid) 0 ${a}%, var(--grn-mid) ${a}% ${b}%, var(--track) ${b}% 100%)" role="img" aria-label="${pct} por ciento del día hecho">
-            <span><b class="num">${pct}%</b><small>del día</small></span>
-          </div>
-          <div class="home-day-text">
-            <span class="home-label">Tu día</span>
-            <strong class="num">${total ? `${doneAll} de ${total} hechos` : "Día libre"}</strong>
-            <p>${msg}</p>
-            <div class="home-legend"><span style="--c:var(--ind-mid)"><i></i>Tareas ${tk.done}/${tk.list.length}</span><span style="--c:var(--grn-mid)"><i></i>Hábitos ${rt.done}/${rt.total}</span></div>
-          </div>
+      ${total ? `
+      <div class="home-pulse">
+        <p class="home-pulse-text" aria-live="polite">${doneAll} de ${total} hecho${total === 1 ? "" : "s"} hoy</p>
+        <div class="home-pulse-bar" role="progressbar" aria-label="Avance de hoy" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${doneAll}">
+          <span style="--p:${ratio}"></span>
         </div>
-        <div>
-          <div class="home-focus-head"><h2>Lo importante hoy</h2><small>máximo 3</small></div>
-          <div class="home-focus">${focus.length ? focus.map((t) => homeTaskHTML(t, now)).join("") : `<p class="home-empty">Nada urgente. Las tareas vencidas, las de hoy y las de prioridad alta aparecen aquí.</p>`}</div>
-        </div>
-      </section>
-      <nav class="card home-areas" aria-label="Tus áreas">${tiles.join("")}</nav>
+      </div>` : ""}
+      <div class="home-main-col">
+        <section class="home-day" aria-label="Lo importante hoy">
+          <h2 class="home-day-title">Lo importante hoy</h2>
+          ${focus.length
+            ? `<ul class="home-focus">${focus.map((t) => homeTaskHTML(t, now)).join("")}</ul>${allFocusDone ? `<p class="home-done-msg">Listo por hoy.</p>` : ""}`
+            : `<p class="home-empty"><span>Nada pendiente para hoy.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="home-qc">Anotar algo</button></p>`}
+        </section>
+        <nav class="home-areas" aria-label="Tus áreas">
+          <h2 class="home-areas-title">Tus áreas</h2>
+          ${tiles.join("")}
+        </nav>
+      </div>
       ${hasRoutine ? `
-      <section class="card home-week" aria-label="Tu semana">
-        <div class="home-week-head">
-          <div><h2>Tu semana</h2><p>${diff === null ? "Así va tu rutina día a día" : diff >= 0 ? "Vas mejor que la semana pasada" : "Un poco por debajo de la semana pasada"}</p></div>
-          <span class="trend ${diff !== null && diff < 0 ? "down" : ""}">${diff !== null && diff >= 0 ? homeSvg("up", 2.5) : ""}${wk.pct === null ? "—" : `${wk.pct} %`}${diff !== null ? ` · ${diff >= 0 ? "+" : ""}${diff}` : ""}</span>
-        </div>
+      <aside class="home-week" aria-label="Tu semana">
+        <h2>Tu semana</h2>
         <div class="week-bars" role="img" aria-label="Cumplimiento de la rutina cada día de esta semana">${bars}</div>
-      </section>` : ""}
-    </div>
-    <button class="home-fab" data-action="home-add" aria-label="Añadir algo rápido">${homeSvg("plus", 2.5)}</button>`;
+      </aside>` : ""}
+    </div>`;
 }
 
-/* Avance del día en la pestaña Pendientes */
+/* El avance vive en Inicio; en Pendientes se mantiene vacío sin romper referencias */
 function renderTaskProgress() {
   const box = $("#task-progress");
   if (!box) return;
-  const tk = dayTasks(today()), n = tk.list.length;
-  if (!n) { box.innerHTML = ""; box.className = ""; return; }
-  const all = tk.done === n, pct = Math.round((tk.done / n) * 100);
-  box.className = `card day-progress ${all ? "all-done" : ""}`;
-  box.innerHTML = `
-    <div class="flex-1 min-w-0"><b class="num">Hoy: ${tk.done} de ${n}</b>
-      <small>${all ? "Día despejado. Buen trabajo." : tk.overdue ? plural(tk.overdue, "vencida por resolver", "vencidas por resolver") : pct >= 50 ? "Vas bien, sigue así." : "Empieza por la más importante."}</small></div>
-    <div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance de hoy"><span style="width:${pct}%;--fill:${all ? "var(--grn-mid)" : "var(--accent)"}"></span></div>`;
+  box.innerHTML = "";
+  box.className = "";
 }
 
 $("#tab-home").addEventListener("click", (e) => {
@@ -177,13 +185,19 @@ $("#tab-home").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   if (btn.dataset.action === "home-toggle") {
-    const t = state.tasks.find((x) => x.id === btn.dataset.id);
+    const row = btn.closest("[data-id]");
+    const id = btn.dataset.id || row?.dataset.id;
+    const t = state.tasks.find((x) => x.id === id);
     if (!t) return;
     t.done = !t.done;
+    if (t.done && state.settings.estilo === "vivo" && navigator.vibrate) navigator.vibrate(8);
     homeKeep.add(t.id);
     commitTasks();
     renderTasks();
     renderHome();
+  } else if (btn.dataset.action === "home-qc") {
+    if (window.QuickCapture) QuickCapture.open();
+    else { showTab("tasks"); setTimeout(() => $("#task-input")?.focus(), 50); }
   } else if (btn.dataset.action === "home-add") {
     openSheet("#home-add");
   }
