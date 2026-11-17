@@ -19,9 +19,10 @@ const assert = require('assert');
   await p.click('#open-settings'); await p.click('#theme-switch'); await p.click('#close-settings'); assert.strictEqual(await bg(),'rgb(243, 244, 246)');
 
   // ---- tarea vence 9 oct
+  await p.setViewportSize({width:1280,height:800}); // el campo de arriba solo existe en computador; en el celular se usa + Anotar
   await p.fill('#task-input','Entregar informe'); await p.fill('#task-due','2026-10-09'); await p.click('#task-form button[type=submit]');
   await p.click('.task-item [data-action=menu-task]');
-  assert.strictEqual(await p.locator('#task-menu .menu-list > button').allInnerTexts().then(a=>a.join('|')),'Editar|Recordatorio|Eliminar'); ok('menú ⋮: Editar | Recordatorio | Eliminar');
+  assert.strictEqual(await p.locator('#task-menu .menu-list > button').allInnerTexts().then(a=>a.join('|')),'Editar|Notas|Recordatorio|Eliminar'); ok('menú ⋮: Editar | Notas | Recordatorio | Eliminar');
   await p.click('#menu-remind');
   await p.click('[data-action=rem-add]');
   // fecha y hora exactas: 7 oct 3pm

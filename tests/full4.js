@@ -59,7 +59,7 @@ const assert = require('assert');
   assert(await p.locator('.book-card').count()===2); ok('lista con 2 libros');
   // eliminar
   await p.click('.book-card:has-text("Hábitos") .book-open');
-  await p.click('#book-bar-actions [data-action=delete]'); 
+  await p.click('#book-more-btn'); await p.click('#book-bar-actions [data-action=delete]'); // v3: Eliminar vive en el menú «Más» 
   assert(await p.locator('#confirm:not(.hidden)').count()===1);
   await p.click('#confirm-ok');
   assert(await p.locator('.book-card').count()===1 && await p.locator('#book-page.hidden').count()===1); ok('eliminar desde la página');

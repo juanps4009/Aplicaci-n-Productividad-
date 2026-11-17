@@ -48,9 +48,10 @@ const assert = require('assert');
   assert((await p.locator('#reading-now').innerText()).includes('Capítulo 8 de 20'));
   await p.click('#reading-now [data-action=chap-inc]'); assert((await p.locator('#reading-now').innerText()).includes('Capítulo 9 de 20'));
   assert.strictEqual(await p.locator('.book-card:has-text("Hábitos") .book-row-prog').innerText(), 'Capítulo 9 de 20');
-  assert.deepStrictEqual(await p.locator('#book-filter button').allInnerTexts(), ['Todos 2', 'Leyendo 1', 'Terminados 0']);
+  assert.deepStrictEqual(await p.locator('#book-filter button').allInnerTexts(), ['Todos', 'Leyendo', 'Terminados']); // v3: el riel no lleva números (el conteo lo da la lista)
+  assert.strictEqual(await p.locator('.book-card').count(), 2);
   await p.click('#book-filter [data-filter=reading]'); assert.strictEqual(await p.locator('.book-card').count(), 1);
-  await p.click('#book-filter [data-filter=done]'); assert.strictEqual(await p.locator('.book-card').count(), 0); assert((await p.locator('#book-list').innerText()).includes('Ningún libro'));
+  await p.click('#book-filter [data-filter=done]'); assert.strictEqual(await p.locator('.book-card').count(), 0); assert((await p.locator('#book-list').innerText()).includes('Aún no terminas ningún libro.')); // v3: vacío en una línea
   await p.click('#book-filter [data-filter=all]'); assert.strictEqual(await p.locator('.book-card').count(), 2); ok('Leyendo ahora con +1 capítulo, y filtros Todos / Leyendo / Terminados');
 
   // ---- terminar

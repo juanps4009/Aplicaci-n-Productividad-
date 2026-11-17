@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const assert = require('assert');
 (async () => {
   const b = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
-  const p = await (await b.newContext({ viewport: { width: 390, height: 800 }, hasTouch: true })).newPage();
+  const p = await (await b.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true })).newPage();
   const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   await p.goto('http://localhost:8123/');
   const ok = (n) => console.log('OK', n);

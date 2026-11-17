@@ -195,6 +195,42 @@
     return n;
   }
 
+  function shiftMonthKey(mk, n) {
+    const [y, m] = mk.split("-").map(Number);
+    const d = new Date(y, m - 1 + n, 1);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  }
+
+  /* Racha según frecuencia: días (daily), semanas (weekly) o meses (monthly). El periodo actual sin marcar no rompe la racha. */
+  function periodStreak(list, item, date) {
+    if (!item || item.freq === "daily") return streak(list, item, date);
+    let n = 0;
+    if (item.freq === "weekly") {
+      let wk = weekKey(date);
+      if (!isDone(list, item, date)) wk = shiftWeek(wk, -1);
+      for (let i = 0; i < 200; i++) {
+        if (!existedOn(item, addDays(weekStart(wk), 6))) break;
+        if (isDone(list, item, weekStart(wk))) n++;
+        else break;
+        wk = shiftWeek(wk, -1);
+      }
+      return n;
+    }
+    if (item.freq === "monthly") {
+      let mk = monthKey(date);
+      if (!isDone(list, item, date)) mk = shiftMonthKey(mk, -1);
+      const createdMonth = item.createdAt ? dateKey(new Date(item.createdAt)).slice(0, 7) : "";
+      for (let i = 0; i < 120; i++) {
+        if (createdMonth && createdMonth > mk) break;
+        if (isDone(list, item, mk + "-01")) n++;
+        else break;
+        mk = shiftMonthKey(mk, -1);
+      }
+      return n;
+    }
+    return 0;
+  }
+
   /* ---------- resumen de una semana ----------
      celdas de un ítem diario: "done" hecho · "miss" no se hizo · "pending" hoy, aún sin marcar ·
      "future" día que no ha llegado · "na" no tocaba (o el ítem aún no existía) */
@@ -283,7 +319,7 @@
     FREQS, FREQ_LABEL, DAY_SHORT, DAY_NAME, MAX_TEXT,
     dateKey, parseDate, addDays, dow, weekKey, weekStart, weekDates, shiftWeek, weekLabel, monthKey, periodKey, isDateKey, isWeekKey,
     clean, cleanList, cleanDays, items, addItem, updateItem, removeItem, moveItem,
-    dueOn, isDone, setDone, toggle, today, streak, weekStats, setReview, describeDays, toMarkdown,
+    dueOn, isDone, setDone, toggle, today, streak, periodStreak, weekStats, setReview, describeDays, toMarkdown,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Routine = api;

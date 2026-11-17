@@ -321,7 +321,9 @@ const RE = (() => {
     const kb = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
     const nav = document.querySelector(".bottom-nav");
     const pageOpen = document.querySelector(".page:not(.hidden)");
-    const base = !pageOpen && nav ? nav.offsetHeight : 0;
+    // en computador (≥1024 px) la navegación es una barra lateral: no ocupa espacio abajo
+    const navBelow = nav && !window.matchMedia("(min-width: 1024px)").matches;
+    const base = !pageOpen && navBelow ? nav.offsetHeight : 0;
     bar.style.bottom = (kb > 40 ? kb : base) + "px";
   }
 

@@ -1,7 +1,7 @@
 "use strict";
 
 /* ---------- Almacenamiento ---------- */
-const APP_VERSION = "0.23.0-beta";
+const APP_VERSION = "0.24.0-beta";
 
 const KEYS = {
   tasks: "prod.tasks", books: "prod.books", filter: "prod.filter", tab: "prod.tab",
@@ -81,7 +81,7 @@ const state = {
   routineEdit: false,      // modo «editar rutina»
   filter: load(KEYS.filter, "all"),
   tab: load(KEYS.tab, "tasks"),
-  settings: { theme: "", priorityStyle: "dot", groupBy: "date", notifyHere: true, ...load(KEYS.settings, {}) },
+  settings: { theme: "", estilo: "sobrio", priorityStyle: "dot", groupBy: "date", notifyHere: true, ...load(KEYS.settings, {}) },
   remState: load(KEYS.remstate, {}),   // qué avisos ya sonaron EN ESTE dispositivo (no se sincroniza)
   sync: { code: "", space: "", lastSeq: 0, lastPushAt: 0, ...load(KEYS.sync, {}) },
   tombs: load(KEYS.tomb, []),          // borrados pendientes de propagar
@@ -116,6 +116,7 @@ setRoutine(load(KEYS.routine, []));
 /* Migraciones de datos guardados por versiones anteriores */
 (function migrateStorage() {
   const st = state.settings;
+  if (st.estilo !== "vivo" && st.estilo !== "sobrio") st.estilo = "sobrio";
   if (!st.serverUrl && st.pushUrl) st.serverUrl = st.pushUrl; // antes la dirección era solo para avisos
   delete st.pushUrl;
   // La rutina viaja por el servidor como «resúmenes» con id "rt:…"; una versión anterior pudo guardarlos como libros
@@ -154,7 +155,7 @@ function esc(str) {
 }
 
 
-/* ---------- Tema (claro / oscuro con interruptor) ---------- */
+/* ---------- Tema (claro / oscuro con interruptor) y aspecto (Sobrio / Vivo) ---------- */
 const hostTheme = document.documentElement.dataset.theme || ""; // el visor de betas puede fijar uno
 function initTheme() { // la primera vez toma el tema del sistema y queda fijo
   if (state.settings.theme === "light" || state.settings.theme === "dark") return;
@@ -162,9 +163,12 @@ function initTheme() { // la primera vez toma el tema del sistema y queda fijo
   save(KEYS.settings, state.settings);
 }
 function applyTheme() {
+  const dark = state.settings.theme === "dark";
+  const vivo = state.settings.estilo === "vivo";
   document.documentElement.dataset.theme = state.settings.theme;
+  document.documentElement.dataset.estilo = vivo ? "vivo" : "sobrio";
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = state.settings.theme === "dark" ? "#0d0f14" : "#f3f4f6";
+  if (meta) meta.content = dark ? (vivo ? "#0b0d13" : "#0d0f14") : (vivo ? "#f7f5f0" : "#f3f4f6");
 }
 
 /* ---------- Diálogo de confirmación propio (confirm() no funciona en todos los visores) ---------- */
@@ -183,6 +187,45 @@ function askConfirm(message, okLabel = "Eliminar") {
 
 /* ---------- Navegación ---------- */
 const TITLES = { home: "Inicio", tasks: "Pendientes", routine: "Rutina", work: "Trabajo", books: "Resúmenes" };
+const HEADER_ICONS = {
+  edit: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="var(--icon-stroke, 2)" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="var(--icon-stroke, 2)" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
+};
+
+function renderHeaderActions() {
+  const box = $("#header-tab-actions");
+  const editingRoutine = state.tab === "routine" && state.routineView === "today" && state.routineEdit;
+  document.body.classList.toggle("rt-editing", editingRoutine);
+  if (!box) return;
+  if (state.tab === "routine") {
+    box.innerHTML = editingRoutine
+      ? `<button type="button" class="header-text-btn" data-action="rt-edit">Listo</button>`
+      : `<button type="button" class="icon-btn" data-action="rt-edit" aria-label="Editar rutina">${HEADER_ICONS.edit}</button>`;
+  } else if (state.tab === "work") {
+    box.innerHTML = state.workView === "income"
+      ? `<button type="button" class="header-add-btn" data-action="inc-add" aria-label="Añadir ingreso">${HEADER_ICONS.plus}<span class="header-add-label">Añadir ingreso</span></button>`
+      : `<button type="button" class="header-add-btn" data-action="wk-add" aria-label="Añadir oportunidad">${HEADER_ICONS.plus}<span class="header-add-label">Añadir oportunidad</span></button>`;
+  } else if (state.tab === "books") {
+    box.innerHTML = `<button type="button" id="new-book" class="header-add-btn" data-action="bk-add" aria-label="Nuevo resumen">${HEADER_ICONS.plus}<span class="header-add-label">Nuevo resumen</span></button>`;
+  } else {
+    box.innerHTML = "";
+  }
+}
+
+$("#header-tab-actions")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  switch (btn.dataset.action) {
+    case "rt-edit":
+      if (state.routineView === "week") { state.routineView = "today"; state.routineEdit = true; }
+      else state.routineEdit = !state.routineEdit;
+      renderRoutine();
+      break;
+    case "wk-add": openWorkSheet(null); break;
+    case "inc-add": openIncomeSheet(null); break;
+    case "bk-add": createNewBook(); break;
+  }
+});
 
 function showTab(tab) {
   if (!TITLES[tab]) tab = "tasks";
@@ -197,9 +240,12 @@ function showTab(tab) {
   if (tab === "routine") renderRoutine();
   if (tab === "work") renderWork();
   $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  const eb = $("#page-eyebrow");
+  if (eb && tab !== "home") { eb.classList.add("hidden"); eb.textContent = ""; }
   $("#page-title").textContent = TITLES[tab];
   if (typeof renderHome === "function") { if (tab === "home") renderHome(); else homeKeep.clear(); }
-  $("#open-filter").classList.toggle("hidden", tab !== "tasks");
+  $("#open-filter")?.classList.add("hidden");
+  renderHeaderActions();
   window.scrollTo(0, 0);
 }
 
@@ -224,7 +270,7 @@ function dueLabel(due) {
   if (diff === 0) return "Hoy";
   if (diff === 1) return "Mañana";
   if (diff === -1) return "Ayer";
-  return new Date(due + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short", year: diff < -300 || diff > 300 ? "numeric" : undefined });
+  return new Date(due + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short", year: diff < -300 || diff > 300 ? "numeric" : undefined }).replace(/\./g, "");
 }
 
 function prioChipsHTML(selected, name) {
@@ -236,6 +282,7 @@ function prioChipsHTML(selected, name) {
 }
 
 const NOTEBOOK_ICON = `<svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z"/><path d="M6 3v18M10 8h5M10 12h5M10 16h3"/></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></svg>`;
 
 const metaSvg = (name, d) => `<svg class="meta-i" data-i="${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
 const META_ICON = {
@@ -261,17 +308,20 @@ function taskHTML(t) {
   const overdue = t.due && !t.done && t.due < today();
   const hasNotes = (t.doc || []).some((b) => b.text.trim());
   const next = t.done ? null : Reminders.nextFires(t, Date.now(), 60, 1, deviceId())[0];
-  const meta = [t.due ? `${META_ICON.cal}${dueLabel(t.due)}` : "", next ? `${META_ICON.bell}${Reminders.fmtStamp(next.ms)}` : ""].filter(Boolean).join(" · ");
+  const dueTxt = t.due ? (overdue ? `Vencida · ${dueLabel(t.due)}` : dueLabel(t.due)) : "";
+  const remTxt = next ? `${META_ICON.bell}${Reminders.fmtStamp(next.ms)}` : "";
+  const meta = [dueTxt, remTxt].filter(Boolean).join(" · ");
+  const prioLabel = PRIORITIES.find((p) => p.key === t.priority)?.label ?? "";
   return `
     <li class="task-item ${t.done ? "done" : ""}" data-id="${t.id}" data-prio="${t.priority}">
       <input type="checkbox" ${t.done ? "checked" : ""} aria-label="Completada">
-      <span class="dot" aria-label="Prioridad ${PRIORITIES.find((p) => p.key === t.priority)?.label ?? ""}"></span>
       <div class="task-main">
         <div class="task-text"${alignAttr(t.align)}>${RT.toHTML(t.text, t.marks)}</div>
         ${meta ? `<div class="due-label ${overdue ? "overdue" : ""}">${meta}</div>` : ""}
       </div>
-      <button class="icon-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
-      <button class="icon-btn" data-action="menu-task" aria-label="Más opciones" style="font-size:1.4rem;font-weight:700">⋮</button>
+      <span class="dot" aria-label="Prioridad ${prioLabel}"></span>
+      <button class="icon-btn task-notes-btn ${hasNotes ? "has-notes" : ""}" data-action="notes-task" aria-label="Notas de la tarea">${NOTEBOOK_ICON}</button>
+      <button class="icon-btn task-more-btn" data-action="menu-task" aria-label="Más opciones">${MORE_ICON}</button>
     </li>`;
 }
 
@@ -308,6 +358,11 @@ function groupHTML(g, forceOpen) {
 function renderTasks() {
   document.body.classList.toggle("style-border", state.settings.priorityStyle === "border");
   $$("#filters button").forEach((b) => b.classList.toggle("active", b.dataset.filter === state.filter));
+  $$("#task-filter button").forEach((b) => {
+    const on = b.dataset.filter === state.filter;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-checked", String(on));
+  });
   $("#filter-badge").classList.toggle("hidden", state.filter === "all");
 
   const active = state.tasks.filter((t) => !t.done);
@@ -325,9 +380,14 @@ function renderTasks() {
   }
 
   $("#task-groups").innerHTML = groups.map((g) => groupHTML(g, g.key === "done" && state.filter === "done")).join("");
-  $("#task-empty").classList.toggle("hidden", groups.length > 0);
-  $("#task-counter").textContent = state.tasks.length
-    ? `${active.length} pendiente${active.length === 1 ? "" : "s"} de ${state.tasks.length}` : "";
+  const emptyEl = $("#task-empty");
+  emptyEl.classList.toggle("hidden", groups.length > 0);
+  if (!groups.length) {
+    emptyEl.innerHTML = state.filter === "done"
+      ? `<span>Todavía no hay tareas hechas.</span>`
+      : `<span>Nada pendiente.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="task-qc">Anotar algo</button>`;
+  }
+  $("#task-counter").textContent = "";
   $("#new-priority").innerHTML = prioChipsHTML(state.newPriority, "new");
   renderAttention();
   renderWidget();
@@ -384,6 +444,13 @@ if (WIDGET_MODE) {
   });
   // la app principal (otra ventana) guardó cambios: traerlos al instante
   window.addEventListener("storage", (e) => {
+    if (e.key === KEYS.settings) {
+      state.settings = { theme: "", estilo: "sobrio", priorityStyle: "dot", groupBy: "date", notifyHere: true, ...load(KEYS.settings, {}) };
+      if (state.settings.estilo !== "vivo" && state.settings.estilo !== "sobrio") state.settings.estilo = "sobrio";
+      applyTheme();
+      renderTasks();
+      return;
+    }
     if (e.key !== KEYS.tasks) return;
     state.tasks = loadList(KEYS.tasks, migrateTask);
     renderTasks();
@@ -512,7 +579,10 @@ window.addEventListener("popstate", () => {
   try { cerrarCapaSuperior(); } finally { enPop = false; }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || e.defaultPrevented || !capas.length) return;
+  if (e.key !== "Escape" || e.defaultPrevented) return;
+  const bmenu = $("#book-menu");
+  if (bmenu && !bmenu.classList.contains("hidden")) { e.preventDefault(); closeBookMenu(); return; }
+  if (!capas.length) return;
   const menu = $("#slash-menu");
   if (menu && !menu.classList.contains("hidden")) return; // el menú «/» se cierra solo con Escape
   const aviso = $("#confirm");
@@ -532,11 +602,28 @@ $("#filters").addEventListener("click", (e) => {
   closeSheet("#filter-sheet");
   renderTasks();
 });
+$("#task-filter")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-filter]");
+  if (!btn) return;
+  state.filter = btn.dataset.filter;
+  save(KEYS.filter, state.filter);
+  renderTasks();
+});
+$("#task-empty")?.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-action='task-qc']")) return;
+  if (window.QuickCapture && !matchMedia("(min-width: 1024px)").matches) QuickCapture.open();
+  else $("#task-input")?.focus();
+});
 
 $("#menu-edit").addEventListener("click", () => {
   state.editingTask = state.menuTask;
   closeSheet("#task-menu");
   renderTasks();
+});
+$("#menu-notes").addEventListener("click", () => {
+  const task = state.tasks.find((t) => t.id === state.menuTask);
+  closeSheet("#task-menu");
+  if (task) openNotes(task);
 });
 $("#menu-delete").addEventListener("click", () => {
   const before = state.tasks;
@@ -613,7 +700,17 @@ $("#task-groups").addEventListener("click", (e) => {
     return;
   }
   const btn = e.target.closest("[data-action]");
-  if (!btn) return;
+  if (!btn) {
+    const main = e.target.closest(".task-main");
+    const li = main && !e.target.closest("a, button, input, [contenteditable='true']") && main.closest("li[data-id]:not(.editing)");
+    const task = li && state.tasks.find((t) => t.id === li.dataset.id);
+    if (task) {
+      state.menuTask = task.id;
+      $("#task-menu-title").textContent = task.text;
+      openSheet("#task-menu");
+    }
+    return;
+  }
   const li = btn.closest("li[data-id]");
   const task = li && state.tasks.find((t) => t.id === li.dataset.id);
 
@@ -675,37 +772,56 @@ $("#task-groups").addEventListener("change", (e) => {
   const task = li && state.tasks.find((t) => t.id === li.dataset.id);
   if (!task || e.target.type !== "checkbox") return;
   task.done = e.target.checked;
+  if (task.done && state.settings.estilo === "vivo" && navigator.vibrate) navigator.vibrate(8);
   persistTasks();
 });
 
 /* ---------- Ajustes ---------- */
+let codeShown = false;
+let notifyBlockedNote = false;
+
 function renderSettings() {
   $("#app-version").textContent = `Versión ${APP_VERSION}`;
   $$(".seg[data-setting]").forEach((seg) => {
     const current = state.settings[seg.dataset.setting];
-    seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.value === current));
+    seg.querySelectorAll("button").forEach((b) => {
+      const on = b.dataset.value === current;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-checked", String(on));
+    });
   });
   $("#theme-switch").setAttribute("aria-checked", String(state.settings.theme === "dark"));
-  $("#notify-switch").setAttribute("aria-checked", String(!!state.settings.notifyHere));
 
-  const btn = $("#enable-notif");
-  if (!("Notification" in window)) {
-    btn.textContent = "Notificaciones no disponibles"; btn.disabled = true;
-  } else if (Notification.permission === "granted") {
-    btn.textContent = "🔔 Permiso de notificaciones concedido"; btn.disabled = true;
-  } else if (Notification.permission === "denied") {
-    btn.textContent = "Notificaciones bloqueadas en el navegador"; btn.disabled = true;
-  } else {
-    btn.textContent = "Permitir notificaciones"; btn.disabled = false;
+  const hasNotif = "Notification" in window;
+  const permDenied = hasNotif && Notification.permission === "denied";
+  if (permDenied && state.settings.notifyHere) {
+    state.settings.notifyHere = false;
+    save(KEYS.settings, state.settings);
+  }
+  const notifyOn = !!state.settings.notifyHere && !permDenied;
+  $("#notify-switch").setAttribute("aria-checked", String(notifyOn));
+  const noteEl = $("#notify-note");
+  if (noteEl) {
+    if (permDenied || notifyBlockedNote) {
+      noteEl.textContent = "Bloqueado por el navegador. Actívalo en el candado de la barra de direcciones.";
+      noteEl.classList.remove("hidden");
+    } else if (!hasNotif) {
+      noteEl.textContent = "Este navegador no admite notificaciones.";
+      noteEl.classList.remove("hidden");
+    } else {
+      noteEl.textContent = "";
+      noteEl.classList.add("hidden");
+    }
   }
 
   const push = $("#push-switch");
   push.setAttribute("aria-checked", String(!!state.settings.pushOn));
-  push.disabled = pushStatus.kind === "busy";
+  push.disabled = pushStatus.kind === "busy" || (!notifyOn && !state.settings.pushOn);
+  $("#push-row")?.classList.toggle("is-dimmed", !notifyOn);
   const ps = $("#push-status");
   ps.textContent = pushStatus.text || (state.settings.pushOn ? "Activo" : serverUrl()
-    ? "Apagado: los avisos solo suenan con la app abierta o al abrirla."
-    : "Necesita tu servidor (abajo). Sin él, los avisos suenan con la app abierta o al abrirla.");
+    ? "Apagado: los avisos solo suenan con la app abierta."
+    : "Necesita tu servidor (abajo). Sin él, los avisos suenan con la app abierta.");
   ps.classList.toggle("rem-error", pushStatus.kind === "error");
 
   if (document.activeElement !== $("#server-url")) $("#server-url").value = state.settings.serverUrl || "";
@@ -721,15 +837,16 @@ function renderSettings() {
   renderSyncIcon();
 }
 
-$("#open-settings").addEventListener("click", () => { renderSettings(); openSheet("#settings"); });
+$("#open-settings").addEventListener("click", () => { codeShown = false; renderSettings(); openSheet("#settings"); });
 $("#open-sync").addEventListener("click", () => { // atajo desde la cabecera: abre Ajustes en la tarjeta de sincronización
+  codeShown = false;
   renderSettings();
   $("#sync-card").open = true;
   openSheet("#settings");
   $("#sync-card").scrollIntoView({ block: "start" });
 });
-$("#close-settings").addEventListener("click", () => closeSheet("#settings"));
-$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSheet("#settings"); });
+$("#close-settings").addEventListener("click", () => { codeShown = false; closeSheet("#settings"); });
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") { codeShown = false; closeSheet("#settings"); } });
 
 $$(".seg[data-setting]").forEach((seg) => seg.addEventListener("click", (e) => {
   const b = e.target.closest("button[data-value]");
@@ -741,12 +858,6 @@ $$(".seg[data-setting]").forEach((seg) => seg.addEventListener("click", (e) => {
   renderTasks();
 }));
 
-$("#enable-notif").addEventListener("click", async () => {
-  try { await Notification.requestPermission(); } catch { /* navegador sin soporte */ }
-  renderSettings();
-  runReminders();
-});
-
 $("#theme-switch").addEventListener("click", () => {
   state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
   save(KEYS.settings, state.settings);
@@ -755,13 +866,27 @@ $("#theme-switch").addEventListener("click", () => {
 });
 
 $("#notify-switch").addEventListener("click", async () => {
-  state.settings.notifyHere = !state.settings.notifyHere;
-  save(KEYS.settings, state.settings);
-  if (state.settings.notifyHere && "Notification" in window && Notification.permission === "default") {
-    try { await Notification.requestPermission(); } catch { /* sin soporte */ }
+  if (state.settings.notifyHere) {
+    state.settings.notifyHere = false;
+    notifyBlockedNote = false;
+  } else if ("Notification" in window) {
+    if (Notification.permission === "default") {
+      try { await Notification.requestPermission(); } catch { /* sin soporte */ }
+    }
+    if (Notification.permission === "denied") {
+      state.settings.notifyHere = false;
+      notifyBlockedNote = true;
+    } else {
+      state.settings.notifyHere = true;
+      notifyBlockedNote = false;
+    }
+  } else {
+    state.settings.notifyHere = true;
   }
+  save(KEYS.settings, state.settings);
   schedulePushSync();
   renderSettings();
+  runReminders();
 });
 
 /* ---------- Recordatorios por tarea ---------- */
@@ -1182,7 +1307,7 @@ async function connectServer() {
       saveSync();
       save(KEYS.settings, state.settings);
     }
-    serverStatus = { kind: "ok", text: "Conectado ✓" };
+    serverStatus = { kind: "ok", text: "Conectado" };
     renderSettings();
     scheduleSync(0);
   } catch (err) {
@@ -1217,37 +1342,46 @@ function renderSyncBody() {
   const box = $("#sync-body");
   const typed = $("#sync-code-in") ? $("#sync-code-in").value : "";
   if (!serverUrl()) {
-    box.innerHTML = `<p class="muted text-xs">No hay servidor configurado. Conecta uno en «Servidor propio (avanzado)», más abajo. Sin servidor, tus datos solo viven en este dispositivo.</p>`;
+    box.innerHTML = `<p class="setting-note">No hay servidor configurado. Conecta uno en «Servidor propio (avanzado)», más abajo. Sin servidor, tus datos solo viven en este dispositivo.</p>`;
     return;
   }
   if (!state.sync.space) {
     box.innerHTML = `
-      <div class="sync-actions">
-        <button class="btn-primary py-3" data-action="sync-create">Crear código nuevo</button>
-        <p class="muted text-xs">Si ya creaste uno en tu otro dispositivo, escríbelo aquí:</p>
+      <div class="sync-unlinked">
+        <p class="setting-note">Usa el mismo código en tu celular y tu computador. Tus datos se cifran en tu dispositivo: nadie más puede leerlos.</p>
+        <button type="button" class="btn-secondary" data-action="sync-create">Crear código nuevo</button>
         <input id="sync-code-in" class="field" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" aria-label="Código de sincronización" value="${esc(typed)}">
-        <button class="btn-secondary py-3" data-action="sync-join">Unirme con este código</button>
-        ${syncInfo.kind === "error" ? `<p class="rem-error text-xs" role="alert">${esc(syncInfo.text)}</p>` : ""}
+        <button type="button" class="btn-secondary" data-action="sync-join">Unirme con este código</button>
+        ${syncInfo.kind === "error" ? `<p class="setting-note rem-error" role="alert">${esc(syncInfo.text)}</p>` : ""}
       </div>`;
     return;
   }
   const status = syncInfo.kind === "busy" ? "Sincronizando…"
     : syncInfo.kind === "ok" ? `Sincronizado ${agoText(syncInfo.at)} · ${state.tasks.length} tarea${state.tasks.length === 1 ? "" : "s"} · ${state.books.filter((b) => !b.isNew).length} resumen${state.books.length === 1 ? "" : "es"}`
-      : syncInfo.text;
+      : syncInfo.text || "Conectado";
+  const formatted = Sync.formatCode(state.sync.code);
+  const masked = "••••-••••-••••-••••-••••";
   box.innerHTML = `
-    <div class="sync-actions">
-      <div class="code-box" aria-label="Tu código de sincronización">${Sync.formatCode(state.sync.code)}</div>
-      <div class="sync-row">
-        <button class="btn-secondary py-3" data-action="sync-copy">Copiar</button>
-        <button class="btn-secondary py-3" data-action="sync-qr">${qrOpen ? "Ocultar QR" : "Mostrar QR"}</button>
+    <div class="sync-row-item">
+      <span class="setting-label">Estado</span>
+      <span class="sync-state-val ${syncInfo.kind === "error" ? "rem-error" : ""}" role="status" aria-live="polite">${esc(status)}</span>
+    </div>
+    <div class="sync-row-item">
+      <div class="setting-text">
+        <span class="setting-label">Código</span>
+        <span class="code-box ${codeShown ? "" : "is-masked"}" aria-label="${codeShown ? `Código ${formatted}` : "Código oculto"}">${codeShown ? formatted : masked}</span>
       </div>
-      ${qrOpen ? `<div class="qr-box">${qrSvg()}<p class="muted text-xs">Escanéalo con la cámara de tu otro dispositivo.</p></div>` : ""}
-      <p class="text-xs ${syncInfo.kind === "error" ? "rem-error" : "muted"}" role="status">${esc(status)}</p>
-      <div class="sync-row">
-        <button class="btn-secondary py-3" data-action="sync-now">Sincronizar ahora</button>
-        <button class="btn-danger-soft py-3" data-action="sync-unlink">Desvincular</button>
-      </div>
-      <button class="link-btn" data-action="sync-erase">Borrar mis datos del servidor</button>
+      <button type="button" class="link-accent" data-action="sync-show" aria-pressed="${codeShown}">${codeShown ? "Ocultar" : "Mostrar"}</button>
+    </div>
+    <div class="sync-btn-row">
+      <button type="button" class="btn-secondary" data-action="sync-copy">Copiar</button>
+      <button type="button" class="btn-secondary" data-action="sync-qr" aria-expanded="${qrOpen}">${qrOpen ? "Ocultar QR" : "Código QR"}</button>
+      <button type="button" class="btn-secondary sync-now-btn" data-action="sync-now" ${syncing ? "disabled" : ""}>${syncing ? "Sincronizando…" : "Sincronizar ahora"}</button>
+    </div>
+    ${qrOpen ? `<div class="qr-box">${qrSvg()}<p class="setting-note">Escanéalo con la cámara de tu otro dispositivo.</p></div>` : ""}
+    <div class="sync-links">
+      <button type="button" class="link-danger" data-action="sync-unlink">Desvincular este dispositivo</button>
+      <button type="button" class="link-muted" data-action="sync-erase">Borrar mis datos del servidor</button>
     </div>`;
 }
 
@@ -1256,6 +1390,7 @@ async function joinSpace(code) {
   syncKeyPromise = null;
   saveSync();
   qrOpen = false;
+  codeShown = false;
   syncInfo = { kind: "busy", text: "", at: 0 };
   renderSettings();
   await syncNow();
@@ -1274,10 +1409,14 @@ $("#sync-body").addEventListener("click", async (e) => {
       await joinSpace(code);
       break;
     }
+    case "sync-show":
+      codeShown = !codeShown;
+      renderSyncBody();
+      break;
     case "sync-copy":
-      try { await navigator.clipboard.writeText(Sync.formatCode(state.sync.code)); btn.textContent = "Copiado ✓"; }
-      catch { btn.textContent = "Selecciona y copia el código"; }
-      setTimeout(() => { btn.textContent = "Copiar"; }, 1800);
+      try { await navigator.clipboard.writeText(Sync.formatCode(state.sync.code)); btn.textContent = "Copiado"; }
+      catch { btn.textContent = "No se pudo copiar"; }
+      setTimeout(() => { if (btn.isConnected) btn.textContent = "Copiar"; }, 1800);
       break;
     case "sync-qr": qrOpen = !qrOpen; renderSettings(); break;
     case "sync-now": syncNow(); break;
@@ -1291,6 +1430,7 @@ $("#sync-body").addEventListener("click", async (e) => {
           saveSync();
           syncInfo = { kind: "idle", text: "", at: 0 };
           qrOpen = false;
+          codeShown = false;
         } catch (err) {
           syncInfo = { kind: "error", at: 0, text: err && err.name === "TypeError" ? "Sin conexión: no se pudo borrar. Inténtalo de nuevo." : err.message };
         }
@@ -1304,6 +1444,7 @@ $("#sync-body").addEventListener("click", async (e) => {
         saveSync();
         syncInfo = { kind: "idle", text: "", at: 0 };
         qrOpen = false;
+        codeShown = false;
         renderSettings();
       }
       break;
@@ -1322,20 +1463,19 @@ function widgetLink() {
 function renderWidgetBlock() {
   const box = $("#widget-block");
   if (!isAndroid) {
-    box.innerHTML = `<p class="muted text-xs">El widget de pantalla de inicio es solo para Android. Abre esta app desde tu celular Android para conectarlo.</p>`;
+    box.innerHTML = `<p class="setting-note">El widget de pantalla de inicio es solo para Android. Abre esta app desde tu celular Android para conectarlo.</p>`;
   } else if (!syncLinked()) {
-    box.innerHTML = `<p class="muted text-xs">El widget lee tus tareas desde tu código de sincronización. Primero crea tu código (arriba) y vuelve aquí.</p>`;
+    box.innerHTML = `<p class="setting-note">El widget lee tus tareas desde tu código de sincronización. Primero crea tu código (arriba) y vuelve aquí.</p>`;
   } else {
     box.innerHTML = `
-      <p class="muted text-xs">Muestra tus tareas pendientes con su prioridad en la pantalla de inicio. Al tocar una, se abre aquí.</p>
-      <a class="btn-primary block py-3 text-center" id="widget-connect" href="${esc(widgetLink())}">Conectar el widget</a>
+      <p class="setting-note">Muestra tus tareas pendientes con su prioridad en la pantalla de inicio. Al tocar una, se abre aquí.</p>
+      <a class="btn-secondary" id="widget-connect" href="${esc(widgetLink())}">Conectar el widget</a>
       <ol class="steps">
         <li>Toca «Conectar el widget». Si aún no lo tienes, se descarga solo.</li>
         <li>Al terminar, toca <b>Abrir</b> y luego <b>Instalar</b> (si Android lo pide, permite instalar desde este navegador).</li>
         <li>Vuelve aquí y toca «Conectar el widget» otra vez. Después, mantén pulsada la pantalla de inicio → Widgets → Pendientes.</li>
       </ol>
-      <p class="muted text-xs">¿Ya lo tienes instalado? «Conectar el widget» no lo vuelve a descargar. Para tener la versión nueva (tamaños desde 2x2):</p>
-      <a class="btn-secondary block py-3 text-center" id="widget-update" href="${esc(APP.widgetDownload || "#")}" download="pendientes-widget.apk">Descargar la versión nueva del widget</a>
+      <a id="widget-update" href="${esc(APP.widgetDownload || "#")}" download="pendientes-widget.apk">Descargar la última versión del widget</a>
       <ol class="steps">
         <li>Ábrelo cuando termine y toca <b>Instalar</b> (se instala encima, sin borrar nada).</li>
         <li>Quita de la pantalla de inicio el widget que ya tenías (mantenlo pulsado → Quitar) y añádelo otra vez desde Widgets → Pendientes. Así Android toma los tamaños nuevos.</li>
@@ -1365,6 +1505,7 @@ function renderSyncIcon() {
   const error = linked && syncInfo.kind === "error";
   btn.classList.toggle("is-syncing", linked && syncing);
   btn.classList.toggle("is-error", error && !syncing);
+  btn.classList.toggle("is-quiet", linked && !syncing && !error); // al día: no hace falta a la vista
   $("#sync-badge").classList.toggle("hidden", !linked);
   const label = !linked ? "Sincronizar mis dispositivos" : syncing ? "Sincronizando…" : error ? `Sin sincronizar: ${syncInfo.text}` : "Sincronizado";
   btn.setAttribute("aria-label", label);
@@ -1864,9 +2005,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 function freeViewHTML(b) {
   const doc = (b.doc || []).filter((x) => x.text.trim());
-  if (!doc.length) return `<p class="muted">Sin contenido todavía. Toca ✎ para escribir; usa “/” para dar formato.</p>`;
+  if (!doc.length) return `<p class="book-notes-empty"><span>Aún no has escrito notas.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="edit">Editar resumen</button></p>`;
   const titles = doc.filter((x) => x.type === "h1");
-  const rail = titles.length ? `
+  const rail = titles.length >= 2 ? `
     <nav class="dot-rail" aria-label="Secciones del resumen">
       ${titles.map((t) => `<button data-action="goto" data-target="${esc(t.id)}" title="${esc(t.text)}" aria-label="Ir a ${esc(t.text)}"></button>`).join("")}
     </nav>` : "";
@@ -1874,17 +2015,21 @@ function freeViewHTML(b) {
 }
 
 function bookPageViewHTML(b) {
-  const boxes = SECTIONS.map((s) => `
-    <div class="box ${s.cls}">
-      <h3>${s.label}</h3>
-      ${b[s.key] ? `<p>${linesToBlocks(b[s.key], b[s.key + "Marks"], b[s.key + "Aligns"]).map((l) =>
-        `<span class="ln"${alignAttr(l.align)}>${RT.toHTML(l.text, l.marks) || "<br>"}</span>`).join("")}</p>` : `<p class="empty">Sin contenido</p>`}
-    </div>`).join("");
+  const filled = SECTIONS.filter((s) => b[s.key] && String(b[s.key]).trim());
+  const boxes = filled.length
+    ? `<div class="grid-gap">${filled.map((s) => `
+      <div class="box ${s.cls}">
+        <h3>${s.label}</h3>
+        <p>${linesToBlocks(b[s.key], b[s.key + "Marks"], b[s.key + "Aligns"]).map((l) =>
+          `<span class="ln"${alignAttr(l.align)}>${RT.toHTML(l.text, l.marks) || "<br>"}</span>`).join("")}</p>
+      </div>`).join("")}</div>`
+    : `<p class="book-notes-empty"><span>Aún no has escrito notas.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="edit">Editar resumen</button></p>`;
   return `
     <h2 class="page-title"${alignAttr(b.titleAlign)}>${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</h2>
-    <p class="muted book-page-author"${alignAttr(b.authorAlign)}>${RT.toHTML(b.author, b.authorMarks) || "Autor desconocido"}</p>
+    ${b.author ? `<p class="muted book-page-author"${alignAttr(b.authorAlign)}>${RT.toHTML(b.author, b.authorMarks)}</p>` : ""}
     ${readingPanelHTML(b)}
-    ${b.template === "free" ? freeViewHTML(b) : `<div class="grid-gap">${boxes}</div>`}`;
+    <div class="book-divider"></div>
+    ${b.template === "free" ? freeViewHTML(b) : boxes}`;
 }
 
 function bookEditHTML(d) {
@@ -1927,37 +2072,40 @@ function bookCover(b) {
   return `--cover:${bg};--cover-ink:${fg}`;
 }
 
-/* Lomo del libro en «Leyendo ahora»: usa la misma portada de color que la lista */
-function spineHTML(b, cls = "") {
-  const letter = String(b.title || "").trim().charAt(0).toUpperCase() || "·";
-  return `<span class="book-spine ${cls}" style="${bookCover(b)}" aria-hidden="true">${esc(letter)}</span>`;
+function bookCoverHTML(b, size = "") {
+  const title = String(b.title || "").trim() || "Sin título";
+  return `<span class="book-cover ${size}" style="${bookCover(b)}" aria-hidden="true"><span class="book-cover-spine"></span><span class="book-cover-title">${esc(title)}</span></span>`;
 }
 
 function readingBarHTML(r) {
-  return r.pct === null ? "" : `<span class="read-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance del libro"><i style="width:${r.pct}%"></i></span>`;
+  return r.pct === null ? "" : `<span class="read-bar" role="progressbar" aria-valuenow="${r.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance del libro"><i style="--p:${r.pct / 100}"></i></span>`;
 }
 
-/* «Leyendo ahora»: los libros en curso, con su capítulo y atajos para avanzar o resumir */
+/* «Leyendo ahora»: el libro en curso (única caja), con su capítulo y atajos para avanzar o resumir */
 function readingNowHTML() {
-  const list = Reading.reading(state.books.filter((b) => !b.isNew));
-  if (!list.length) return "";
-  return `<h2 class="books-head">Leyendo ahora</h2>${list.map((b) => {
-    const r = Reading.info(b);
-    return `
-    <div class="reading-card" data-book="${b.id}">
-      ${spineHTML(b, "big")}
-      <div class="reading-main">
-        <button class="reading-title" data-action="open">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</button>
-        <p class="muted text-sm">${RT.toHTML(b.author, b.authorMarks)}</p>
-        <p class="reading-prog">${esc(Reading.progressText(b))}</p>
-        ${readingBarHTML(r)}
-        <div class="reading-actions">
-          <button class="btn-secondary" data-action="chap-inc" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>+1 capítulo</button>
-          <button class="btn-secondary" data-action="chap-note">Resumir el ${r.chapter}</button>
-        </div>
+  const list = Reading.reading(state.books.filter((b) => !b.isNew))
+    .sort((x, y) => (y.updatedAt || 0) - (x.updatedAt || 0));
+  const b = list[0];
+  if (!b) return "";
+  const r = Reading.info(b);
+  const prog = Reading.progressText(b);
+  const aLabel = [b.title || "Sin título", b.author, prog].filter(Boolean).join(", ") + ". Abrir";
+  return `
+    <section class="reading-card" data-book="${b.id}" aria-label="Leyendo ahora">
+      <button type="button" class="reading-open" data-action="open" aria-label="${esc(aLabel)}">
+        ${bookCoverHTML(b, "big")}
+        <span class="reading-main">
+          <span class="reading-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
+          ${b.author ? `<span class="reading-author">${RT.toHTML(b.author, b.authorMarks)}</span>` : ""}
+          <span class="reading-prog">${esc(prog)}</span>
+          ${readingBarHTML(r)}
+        </span>
+      </button>
+      <div class="reading-actions">
+        <button type="button" class="btn-secondary" data-action="chap-inc" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>+1 capítulo</button>
+        <button type="button" class="btn-secondary" data-action="chap-note">Resumir el ${r.chapter}</button>
       </div>
-    </div>`;
-  }).join("")}`;
+    </section>`;
 }
 
 function renderBookList() {
@@ -1966,22 +2114,26 @@ function renderBookList() {
   if (!c.reading && !c.done) state.bookFilter = "all";
   const shown = Reading.filter(books, state.bookFilter);
   $("#reading-now").innerHTML = readingNowHTML();
-  $("#book-filter").innerHTML = c.reading || c.done ? [["all", "Todos", books.length], ["reading", "Leyendo", c.reading], ["done", "Terminados", c.done]]
-    .map(([k, label, n]) => `<button class="bk-chip ${state.bookFilter === k ? "active" : ""}" data-filter="${k}" aria-pressed="${state.bookFilter === k}">${label} <span>${n}</span></button>`).join("") : "";
+  $("#book-filter").innerHTML = c.reading || c.done ? [["all", "Todos"], ["reading", "Leyendo"], ["done", "Terminados"]]
+    .map(([k, label]) => `<button type="button" class="bk-chip ${state.bookFilter === k ? "active" : ""}" data-filter="${k}" role="radio" aria-checked="${state.bookFilter === k}"><span>${label}</span></button>`).join("") : "";
+  const filterEmptyMsg = state.bookFilter === "reading" ? "No estás leyendo ningún libro." : "Aún no terminas ningún libro.";
   $("#book-list").innerHTML = shown.map((b) => {
-    const r = Reading.info(b), prog = Reading.progressText(b);
+    const r = Reading.info(b), prog = Reading.progressText(b) || "Sin empezar";
+    const aLabel = [b.title || "Sin título", b.author, prog].filter(Boolean).join(", ") + ". Abrir";
     return `
     <article class="book-card" data-book="${b.id}" style="${bookCover(b)}">
-      <button class="book-open" data-action="open">
-        <span class="book-row-main">
-          <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
-          <span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>
-          ${prog ? `<span class="book-row-prog ${r.status}">${esc(prog)}</span>` : ""}
-          ${r.status === "reading" ? readingBarHTML(r) : ""}
+      <button type="button" class="book-open" data-action="open" aria-label="${esc(aLabel)}">
+        <span class="book-open-inner">
+          ${bookCoverHTML(b)}
+          <span class="book-row-main">
+            <span class="book-row-title">${RT.toHTML(b.title, b.titleMarks) || "Sin título"}</span>
+            ${b.author ? `<span class="book-row-author">${RT.toHTML(b.author, b.authorMarks)}</span>` : ""}
+            <span class="book-row-prog ${r.status}">${esc(prog)}</span>
+          </span>
         </span>
       </button>
     </article>`;
-  }).join("") || (books.length ? `<p class="muted py-6 text-center">Ningún libro en este filtro.</p>` : "");
+  }).join("") || (books.length ? `<p class="bk-filter-empty">${filterEmptyMsg}</p>` : "");
   $("#book-empty").classList.toggle("hidden", books.length > 0);
 }
 $("#book-filter").addEventListener("click", (e) => {
@@ -1991,23 +2143,28 @@ $("#book-filter").addEventListener("click", (e) => {
   renderBookList();
 });
 
-/* Panel de lectura en la página del resumen: estado, capítulo actual y total */
+const CHAP_ICONS = {
+  minus: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="var(--icon-stroke, 2)" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="var(--icon-stroke, 2)" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
+};
+
+/* Panel de lectura en la página del resumen (sin caja): estado, capítulo actual y total */
 function readingPanelHTML(b) {
   const r = Reading.info(b);
-  const seg = `<div class="seg read-seg" role="radiogroup" aria-label="Estado de lectura">${Reading.STATUSES.map((k) =>
-    `<button data-action="read-status" data-value="${k}" role="radio" aria-checked="${r.status === k}" class="${r.status === k ? "active" : ""}">${Reading.STATUS_LABEL[k]}</button>`).join("")}</div>`;
-  if (r.status === "done") return `<div class="read-panel">${seg}<p class="read-done">✓ ${esc(Reading.progressText(b))}</p></div>`;
+  const seg = `<div class="tab-rail read-seg" role="radiogroup" aria-label="Estado de lectura">${Reading.STATUSES.map((k) =>
+    `<button type="button" data-action="read-status" data-value="${k}" role="radio" aria-checked="${r.status === k}" class="${r.status === k ? "active" : ""}"><span>${Reading.STATUS_LABEL[k]}</span></button>`).join("")}</div>`;
+  if (r.status === "done") return `<div class="read-panel">${seg}<p class="read-done">✓ ${esc(Reading.progressText(b))}</p>${readingBarHTML(r)}</div>`;
   if (r.status !== "reading") return `<div class="read-panel">${seg}</div>`;
   return `
     <div class="read-panel">${seg}
       <div class="chap-row">
-        <button class="icon-btn chap-step" data-action="chap-dec" aria-label="Capítulo anterior" ${r.chapter <= 1 ? "disabled" : ""}>−</button>
-        <p class="chap-now">Capítulo <b>${r.chapter}</b> de
-          <input id="book-chapters" class="field chap-total" type="number" inputmode="numeric" min="0" max="${Reading.MAX}" value="${r.chapters || ""}" placeholder="?" aria-label="Total de capítulos"></p>
-        <button class="icon-btn chap-step" data-action="chap-inc" aria-label="Capítulo siguiente" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>+</button>
+        <button type="button" class="icon-btn chap-step" data-action="chap-dec" aria-label="Capítulo anterior" ${r.chapter <= 1 ? "disabled" : ""}>${CHAP_ICONS.minus}</button>
+        <p class="chap-now" aria-live="polite">Capítulo <b>${r.chapter}</b> de
+          <input id="book-chapters" class="chap-total" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" value="${r.chapters || ""}" placeholder="?" aria-label="Total de capítulos"></p>
+        <button type="button" class="icon-btn chap-step" data-action="chap-inc" aria-label="Capítulo siguiente" ${r.chapters && r.chapter >= r.chapters ? "disabled" : ""}>${CHAP_ICONS.plus}</button>
       </div>
       ${readingBarHTML(r)}
-      <button class="btn-secondary mt-3 w-full py-3" data-action="chap-note">Resumir el capítulo ${r.chapter}</button>
+      <button type="button" class="btn-secondary read-sum-btn" data-action="chap-note">Resumir el capítulo ${r.chapter}</button>
     </div>`;
 }
 
@@ -2046,7 +2203,21 @@ $("#book-page").addEventListener("change", (e) => {
   applyReading(book, Reading.setTotal(book, e.target.value));
 });
 
+function closeBookMenu() {
+  const m = $("#book-menu");
+  if (m) m.classList.add("hidden");
+  $("#book-more-btn")?.setAttribute("aria-expanded", "false");
+}
+function toggleBookMenu() {
+  const m = $("#book-menu");
+  if (!m) return;
+  const open = m.classList.contains("hidden");
+  m.classList.toggle("hidden", !open);
+  $("#book-more-btn")?.setAttribute("aria-expanded", String(open));
+}
+
 function renderBookPage() {
+  closeBookMenu();
   const page = $("#book-page");
   const book = state.books.find((b) => b.id === state.openBook);
   if (!book) { page.classList.add("hidden"); soltarCapa("#book-page"); document.body.classList.remove("no-scroll"); return; }
@@ -2077,6 +2248,7 @@ function openBook(id) {
   $("#book-page").scrollTop = 0;
 }
 function closeBook() {
+  closeBookMenu();
   state.openBook = null;
   renderBooks();
 }
@@ -2150,7 +2322,7 @@ function blocksToText(blocks) {
   return m;
 }
 
-$("#new-book").addEventListener("click", () => {
+function createNewBook() {
   const book = {
     id: uid(), title: "", author: "", template: state.settings.lastTemplate || "blocks",
     ideas: "", notes: "", quotes: "", conclusion: "", doc: [], collapsed: false, isNew: true,
@@ -2159,9 +2331,14 @@ $("#new-book").addEventListener("click", () => {
   beginEdit(book);
   openBook(book.id);
   $('#book-detail [data-field="title"]')?.focus();
+}
+
+$("#book-empty")?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-action='bk-add']")) createNewBook();
 });
 
 function onBookClick(e) {
+  if (!e.target.closest("#book-more-btn") && !e.target.closest("#book-menu")) closeBookMenu();
   const card = e.target.closest("[data-book]");
   const btn = e.target.closest("[data-action]");
   if (!card || !btn) return;
@@ -2182,12 +2359,23 @@ function onBookClick(e) {
     case "open":
       openBook(book.id);
       break;
+    case "book-more":
+      toggleBookMenu();
+      break;
     case "read-status":
       applyReading(book, Reading.setStatus(book, btn.dataset.value, Date.now()));
       break;
     case "chap-inc":
+      if (btn.closest("#reading-now")) {
+        const prev = { reading: book.reading || "", chapter: book.chapter || 1, doneAt: book.doneAt || "" };
+        applyReading(book, Reading.step(book, 1));
+        showUndo(`Vas en el capítulo ${Reading.info(book).chapter}`, () => applyReading(book, prev));
+      } else {
+        applyReading(book, Reading.step(book, 1));
+      }
+      break;
     case "chap-dec":
-      applyReading(book, Reading.step(book, action === "chap-inc" ? 1 : -1));
+      applyReading(book, Reading.step(book, -1));
       break;
     case "chap-note":
       openChapterSheet(book);
@@ -2198,10 +2386,12 @@ function onBookClick(e) {
       break;
     }
     case "edit":
+      closeBookMenu();
       beginEdit(book);
       renderBooks();
       break;
     case "delete":
+      closeBookMenu();
       askConfirm(`¿Eliminar el resumen "${book.title || "Sin título"}"?`).then((ok) => {
         if (!ok) return;
         state.books = state.books.filter((b) => b.id !== book.id);
@@ -2262,8 +2452,15 @@ function saveBookDraft(id) {
 
 /* Título y autor (campos de una línea) también disparan el guardado automático */
 $("#book-page").addEventListener("input", (e) => {
+  if (e.target.id === "book-chapters") {
+    e.target.value = e.target.value.replace(/\D/g, "").slice(0, 3);
+    return;
+  }
   const id = $("#book-page").dataset.book;
   if (id && state.editing.has(id) && e.target.closest(".rt-line[data-field]")) scheduleBookSave(id);
+});
+$("#book-page").addEventListener("keydown", (e) => {
+  if (e.target.id === "book-chapters" && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
 });
 
 /* Guarda ya lo que esté a medio escribir (al ocultar o cerrar la app) */
@@ -2286,130 +2483,160 @@ function commitRoutine() {
 }
 
 const RT_GROUPS = [
-  { freq: "daily", label: "Hoy", all: "Cada día" },
-  { freq: "weekly", label: "Esta semana", all: "Cada semana" },
-  { freq: "monthly", label: "Este mes", all: "Cada mes" },
+  { freq: "daily", label: "Hoy", all: "Cada día", unit: "días" },
+  { freq: "weekly", label: "Esta semana", all: "Cada semana", unit: "semanas" },
+  { freq: "monthly", label: "Este mes", all: "Cada mes", unit: "meses" },
 ];
-const CHECK_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+const RT_ICONS = {
+  check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
+  grab: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></svg>`,
+  del: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`,
+  prev: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>`,
+  next: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>`,
+};
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const rtJustChecked = new Set();
+function markRoutineJustChecked(key) {
+  rtJustChecked.add(key);
+  setTimeout(() => rtJustChecked.delete(key), 300);
+}
 
 function routineTodayHTML() {
   const date = today(), t = Routine.today(state.routine, date), edit = state.routineEdit;
   const all = Routine.items(state.routine);
   if (!all.length) {
-    return `
-      <div class="card p-4 text-center">
-        <p class="font-bold">Tu rutina está vacía</p>
-        <p class="muted mt-1 text-sm">Añade lo que quieres hacer cada día, cada semana o cada mes. Luego solo tocas para marcarlo como hecho.</p>
-        <button class="btn-primary mt-3 w-full py-3" data-action="rt-add">+ Añadir mi primer pendiente</button>
-      </div>`;
+    return `<p class="rt-empty"><span>Tu rutina está vacía.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="rt-add">Crear hábito</button></p>`;
   }
+  const pulse = edit ? "" : t.total ? `
+    <div class="rt-pulse">
+      <p class="rt-pulse-text" id="routine-count" aria-live="polite">${t.done} de ${t.total} hecho${t.total === 1 ? "" : "s"} hoy</p>
+      <div class="bar rt-bar" role="progressbar" aria-label="Avance de hoy" aria-valuemin="0" aria-valuemax="${t.total}" aria-valuenow="${t.done}">
+        <span style="--p:${t.done / t.total}"></span>
+      </div>
+    </div>` : `<div class="rt-pulse"><p class="rt-pulse-text" id="routine-count" aria-live="polite">Hoy no toca nada</p></div>`;
   const groups = RT_GROUPS.map((g) => {
-    // al editar se ven todos los ítems; en el día a día, solo los que tocan hoy
     const rows = edit ? Routine.items(state.routine, g.freq).map((item) => ({ item, done: false })) : t[g.freq];
     if (!rows.length) return "";
-    const done = rows.filter((r) => r.done).length;
     return `
-      <section class="rt-group" data-freq="${g.freq}">
-        <h3 class="rt-group-head"><span>${edit ? g.all : g.label}</span>${edit ? "" : `<span class="count">${done}/${rows.length}</span>`}</h3>
-        <ul class="rt-list">${rows.map((r, i) => routineRowHTML(r.item, r.done, edit, i, rows.length, date)).join("")}</ul>
+      <section class="rt-group" data-freq="${g.freq}" aria-label="${edit ? g.all : g.label}">
+        <h2 class="rt-group-head"><span>${edit ? g.all : g.label}</span></h2>
+        <ul class="rt-list">${rows.map((r) => routineRowHTML(r.item, r.done, edit, date, g.unit)).join("")}</ul>
       </section>`;
   }).join("");
-  const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
-  // Tarjeta «Tu semana»: porcentaje de la semana y un punto por día; al tocarla se abre el resumen semanal
-  const wk = Routine.weekStats(state.routine, Routine.weekKey(date), date);
-  const dayTitle = (d, i) => `${Routine.DAY_NAME[i]}: ${d.state === "future" ? "aún no llega" : d.state === "empty" ? "no tocaba nada" : `${d.done} de ${d.total}`}`;
-  const weekCard = edit ? "" : `
-    <button class="card rt-week-card" data-action="rt-open-week" aria-label="Tu semana: ${wk.pct === null ? "sin datos" : `${wk.pct} por ciento`}. Ver el resumen semanal">
-      <span class="rt-week-info"><small>Tu semana</small><b id="routine-week-pct">${wk.pct === null ? "—" : `${wk.pct} %`}</b></span>
-      <span class="rt-dots">${wk.days.map((d, i) => `<span class="rt-dot d-${d.state}" title="${dayTitle(d, i)}"><i></i><small>${Routine.DAY_SHORT[i]}</small></span>`).join("")}</span>
-    </button>`;
-  const streak = edit || typeof routineStreak !== "function" ? 0 : routineStreak(date);
-  return `
-    <div class="card rt-hero">
-      ${edit ? "" : `<div class="ring" style="--p:${pct}" aria-hidden="true"><b class="num">${pct}%</b></div>`}
-      <div class="rt-hero-text">
-        <p class="font-bold">${esc(capital(new Date().toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" })))}</p>
-        <p class="muted text-sm" id="routine-count">${edit ? "Editando tu rutina" : t.total ? `${t.done} de ${t.total} hecho${t.total === 1 ? "" : "s"}` : "Hoy no toca nada"}</p>
-        ${streak >= 2 ? `<span class="streak-pill">${homeSvg("flame", 2.2)}${streak} días seguidos</span>` : ""}
-        ${edit ? "" : `<div class="rt-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Avance de hoy"><span style="width:${pct}%"></span></div>`}
-      </div>
-      <button class="btn-secondary" data-action="rt-edit">${edit ? "Listo" : "Editar"}</button>
-    </div>
-    ${weekCard}
-    ${groups}
-    ${edit ? `<button class="btn-primary mt-4 w-full py-3" data-action="rt-add">+ Añadir pendiente</button>` : ""}`;
+  const editAdd = edit ? `
+    <div class="rt-edit-add">
+      <button type="button" class="btn-secondary rt-add-btn" data-action="rt-add">${RT_ICONS.plus}Añadir hábito</button>
+    </div>` : "";
+  return `${pulse}<div class="rt-groups">${groups}${editAdd}</div>`;
 }
 
-function routineRowHTML(item, done, edit, i, n, date) {
+function routineRowHTML(item, done, edit, date, unit) {
   const days = Routine.describeDays(item);
   const label = `<span class="rt-text">${esc(item.text)}${days ? `<small>${esc(days)}</small>` : ""}</span>`;
   if (edit) {
     return `
       <li class="rt-item editing" data-id="${esc(item.id)}">
-        ${label}
-        <button class="icon-btn" data-action="rt-up" aria-label="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
-        <button class="icon-btn" data-action="rt-down" aria-label="Bajar" ${i === n - 1 ? "disabled" : ""}>↓</button>
-        <button class="icon-btn" data-action="rt-item-edit" aria-label="Editar">✎</button>
+        <div class="rt-edit-row">
+          <button type="button" class="rt-grab" data-action="rt-grab" aria-label="Reordenar ${esc(item.text)}">${RT_ICONS.grab}</button>
+          ${label}
+          <div class="rt-edit-actions">
+            <button type="button" class="icon-btn" data-action="rt-item-edit" aria-label="Editar ${esc(item.text)}">${RT_ICONS.edit}</button>
+            <button type="button" class="icon-btn" data-action="rt-item-del" aria-label="Borrar ${esc(item.text)}">${RT_ICONS.del}</button>
+          </div>
+        </div>
       </li>`;
   }
-  const streak = item.freq === "daily" ? Routine.streak(state.routine, item, date) : 0;
+  const streak = Routine.periodStreak(state.routine, item, date);
+  const streakTxt = streak >= 2 ? `${streak} ${unit}` : "";
   return `
-    <li class="rt-item ${done ? "done" : ""}" data-id="${esc(item.id)}">
-      <button class="rt-row" data-action="rt-toggle" role="checkbox" aria-checked="${done}">
-        <span class="rt-check">${CHECK_ICON}</span>
+    <li class="rt-item ${done ? "done" : ""} ${rtJustChecked.has(item.id) ? "just-done" : ""}" data-id="${esc(item.id)}">
+      <button type="button" class="rt-row" data-action="rt-toggle" role="checkbox" aria-checked="${done}" aria-label="${esc(item.text)}${streakTxt ? `, racha de ${streakTxt}` : ""}">
+        <span class="rt-check" aria-hidden="true">${RT_ICONS.check}</span>
         ${label}
-        ${streak >= 2 ? `<span class="rt-streak" title="Días seguidos">${streak} días</span>` : ""}
+        ${streakTxt ? `<span class="rt-streak">${streakTxt}</span>` : ""}
       </button>
     </li>`;
 }
 
-const RT_CELL = { done: "✓", miss: "✕", pending: "", future: "", na: "–" };
 const RT_CELL_LABEL = { done: "hecho", miss: "no se hizo", pending: "hoy, sin marcar", future: "aún no llega", na: "no tocaba" };
 
 function routineWeekHTML() {
+  const all = Routine.items(state.routine);
+  if (!all.length) {
+    return `<p class="rt-empty"><span>Tu rutina está vacía.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="rt-add">Crear hábito</button></p>`;
+  }
   const now = today();
   const wk = state.routineWeek || Routine.weekKey(now);
   const s = Routine.weekStats(state.routine, wk, now);
-  const list = (rows, empty) => (rows.length
-    ? `<ul class="rt-sum-list">${rows.map((r) => `<li class="${r.done ? "ok" : r.closed ? "bad" : ""}"><span>${r.done ? "✓" : r.closed ? "✕" : "○"}</span>${esc(r.item.text)}</li>`).join("")}</ul>`
-    : `<p class="muted text-sm">${empty}</p>`);
-  const grid = s.daily.length ? `
-    <div class="rt-grid" role="table" aria-label="Cumplimiento por día">
-      <div class="rt-grid-row head" role="row"><span></span>${Routine.DAY_SHORT.map((d, i) => `<b class="${s.dates[i] === now ? "today" : ""}">${d}</b>`).join("")}<span></span></div>
-      ${s.daily.map((r) => `
-        <div class="rt-grid-row" role="row" data-id="${esc(r.item.id)}">
-          <span class="rt-grid-name">${esc(r.item.text)}</span>
-          ${r.cells.map((c, i) => (c === "done" || c === "miss" || c === "pending")
-            // los días que ya pasaron (y hoy) se pueden corregir con un toque
-            ? `<i class="c-${c}" role="button" tabindex="0" style="cursor:pointer" data-action="rt-cell" data-date="${s.dates[i]}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]} (toca para cambiar)">${RT_CELL[c]}</i>`
-            : `<i class="c-${c}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]}">${RT_CELL[c]}</i>`).join("")}
-          <span class="rt-grid-score">${r.due ? `${r.done}/${r.due}` : "—"}</span>
-        </div>`).join("")}
-    </div>` : `<p class="muted text-sm">No tienes pendientes diarios.</p>`;
+  const pulse = `
+    <div class="rt-pulse">
+      <p class="rt-pulse-text" aria-live="polite">${s.due ? `${s.done} de ${s.due} cumplido${s.due === 1 ? "" : "s"}` : "Sin datos en esta semana"}</p>
+      ${s.due ? `<div class="bar rt-bar" role="progressbar" aria-label="Cumplimiento de la semana" aria-valuemin="0" aria-valuemax="${s.due}" aria-valuenow="${s.done}"><span style="--p:${s.done / s.due}"></span></div>` : ""}
+    </div>`;
+  const dailySec = s.daily.length ? `
+    <section aria-label="Cada día">
+      <h2 class="rt-week-head">Cada día</h2>
+      <div class="rt-grid" role="table" aria-label="Cumplimiento por día">
+        <div class="rt-grid-head" aria-hidden="true">
+          <div class="rt-letters">${Routine.DAY_SHORT.map((d, i) => `<b class="${s.dates[i] === now ? "today" : ""}">${d}</b>`).join("")}</div>
+        </div>
+        ${s.daily.map((r) => `
+          <div class="rt-grid-row" role="row" data-id="${esc(r.item.id)}">
+            <div class="rt-grid-info">
+              <span class="rt-grid-name">${esc(r.item.text)}</span>
+              <span class="rt-grid-score" aria-label="${r.done} de ${r.due} días">${r.due ? `${r.done}/${r.due}` : "—"}</span>
+            </div>
+            <div class="rt-cells">
+              ${r.cells.map((c, i) => {
+                const active = c === "done" || c === "miss" || c === "pending";
+                const dayNum = Number(s.dates[i].slice(8));
+                const cellKey = `${r.item.id}|${s.dates[i]}`;
+                return active
+                  ? `<button type="button" class="rt-cell-btn ${rtJustChecked.has(cellKey) ? "just-done" : ""}" data-action="rt-cell" data-date="${s.dates[i]}" role="checkbox" aria-checked="${c === "done"}" aria-label="${esc(r.item.text)}, ${Routine.DAY_NAME[i]} ${dayNum}${c === "pending" ? " (hoy)" : ""}" title="${Routine.DAY_NAME[i]}: ${RT_CELL_LABEL[c]}"><i class="c-${c}" aria-hidden="true"></i></button>`
+                  : `<button type="button" class="rt-cell-btn" disabled aria-hidden="true" tabindex="-1"><i class="c-${c}" aria-hidden="true"></i></button>`;
+              }).join("")}
+            </div>
+          </div>`).join("")}
+      </div>
+    </section>` : "";
+  const periodicSec = (label, rows, targetDate) => (rows.length ? `
+    <section class="rt-per-sec" aria-label="${label}">
+      <h2 class="rt-group-head"><span>${label}</span></h2>
+      <ul class="rt-sum-list">${rows.map((r) => {
+        const cellKey = `${r.item.id}|${targetDate}`;
+        const c = r.done ? "done" : "pending";
+        return `
+          <li class="${r.done ? "ok" : ""}" data-id="${esc(r.item.id)}">
+            <span class="rt-per-name">${esc(r.item.text)}</span>
+            <button type="button" class="rt-cell-btn rt-per-btn ${rtJustChecked.has(cellKey) ? "just-done" : ""}" data-action="rt-per-toggle" data-date="${targetDate}" role="checkbox" aria-checked="${r.done}" aria-label="${esc(r.item.text)}${r.done ? ", hecho" : ", pendiente"}" ${s.started ? "" : "disabled"}>
+              <i class="c-${c}" aria-hidden="true"></i>
+            </button>
+          </li>`;
+      }).join("")}</ul>
+    </section>` : "");
+  const weeklyDate = s.dates[0];
+  const monthlyDate = s.dates[6] < now ? s.dates[6] : now;
+  const reviewBox = s.review ? `
+    <section class="card rt-review" aria-label="Comentario de la semana">
+      <h2 class="rt-review-head">Comentario de la semana</h2>
+      <p class="rt-review-text">${esc(s.review.text)}</p>
+      ${s.review.by ? `<p class="rt-review-by">— ${esc(s.review.by)}</p>` : ""}
+    </section>` : "";
   return `
     <div class="rt-weeknav">
-      <button class="icon-btn" data-action="rt-week-prev" aria-label="Semana anterior">‹</button>
-      <div class="text-center">
-        <p class="font-bold" id="routine-week-label">${esc(s.label)}</p>
-        <p class="muted text-xs">${s.current ? "Esta semana" : esc(s.week)}</p>
-      </div>
-      <button class="icon-btn" data-action="rt-week-next" aria-label="Semana siguiente" ${s.current ? "disabled" : ""}>›</button>
+      <button type="button" class="icon-btn" data-action="rt-week-prev" aria-label="Semana anterior">${RT_ICONS.prev}</button>
+      <p class="rt-week-title" aria-live="polite"><span id="routine-week-label">${esc(s.label)}</span><span class="rt-week-sub">${s.current ? "Esta semana" : esc(s.week)}</span></p>
+      <button type="button" class="icon-btn" data-action="rt-week-next" aria-label="Semana siguiente" ${s.current ? "disabled" : ""}>${RT_ICONS.next}</button>
     </div>
-    <div class="card rt-score">
-      <p class="rt-pct">${s.pct === null ? "—" : `${s.pct} %`}</p>
-      <p class="muted text-sm">${s.pct === null ? "Sin datos de esta semana" : `${s.done} de ${s.due} cumplido${s.due === 1 ? "" : "s"}${s.current ? " hasta hoy" : ""}`}</p>
-    </div>
-    <h3 class="rt-group-head"><span>Cada día</span></h3>
-    ${grid}
-    <h3 class="rt-group-head"><span>Cada semana</span></h3>
-    ${list(s.weekly, "No tienes pendientes semanales.")}
-    <h3 class="rt-group-head"><span>Cada mes</span></h3>
-    ${list(s.monthly, "No tienes pendientes mensuales.")}
-    <h3 class="rt-group-head"><span>Comentario de la semana</span></h3>
-    <div class="card rt-review">${s.review
-      ? `<p class="rt-review-text">${esc(s.review.text)}</p><p class="muted mt-2 text-xs">— ${esc(s.review.by)}</p>`
-      : `<p class="muted text-sm">Aún no hay comentario de esta semana.</p>`}</div>`;
+    ${pulse}
+    <div class="rt-week-sections">
+      ${dailySec}
+      ${periodicSec("Cada semana", s.weekly, weeklyDate)}
+      ${periodicSec("Cada mes", s.monthly, monthlyDate)}
+      ${reviewBox}
+    </div>`;
 }
 
 function renderRoutine() {
@@ -2419,6 +2646,7 @@ function renderRoutine() {
     b.setAttribute("aria-selected", String(on));
   });
   $("#routine-body").innerHTML = state.routineView === "week" ? routineWeekHTML() : routineTodayHTML();
+  renderHeaderActions();
 }
 
 $("#routine-view").addEventListener("click", (e) => {
@@ -2503,6 +2731,55 @@ $("#routine-sheet").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.id === "rt-text") { e.preventDefault(); $("#routine-sheet [data-action=rt-save]").click(); }
 });
 
+/* Reordenar arrastrando el asa en modo edición */
+let rtDrag = null;
+$("#routine-body").addEventListener("pointerdown", (e) => {
+  const grab = e.target.closest("[data-action='rt-grab']");
+  if (!grab || e.button) return;
+  const li = grab.closest(".rt-item.editing[data-id]");
+  if (!li) return;
+  e.preventDefault();
+  try { grab.setPointerCapture(e.pointerId); } catch { /* sin captura */ }
+  rtDrag = { grab, li, id: li.dataset.id, y0: e.clientY, dy: 0, pid: e.pointerId };
+  li.style.zIndex = "2";
+  li.style.transition = "none";
+});
+document.addEventListener("pointermove", (e) => {
+  if (!rtDrag || e.pointerId !== rtDrag.pid) return;
+  rtDrag.dy = e.clientY - rtDrag.y0;
+  rtDrag.li.style.transform = `translateY(${rtDrag.dy}px)`;
+});
+function endRtDrag(e) {
+  if (!rtDrag || e.pointerId !== rtDrag.pid) return;
+  const { li, id, dy } = rtDrag;
+  rtDrag = null;
+  const rowH = li.offsetHeight || 52;
+  const shift = e.type === "pointercancel" ? 0 : Math.round(dy / rowH);
+  li.style.transform = ""; li.style.transition = ""; li.style.zIndex = "";
+  if (!shift) return;
+  const dir = shift > 0 ? 1 : -1;
+  let moved = false;
+  for (let k = 0; k < Math.abs(shift); k++) {
+    if (Routine.moveItem(state.routine, id, dir)) moved = true;
+  }
+  if (moved) { commitRoutine(); renderRoutine(); }
+}
+document.addEventListener("pointerup", endRtDrag);
+document.addEventListener("pointercancel", endRtDrag);
+$("#routine-body").addEventListener("keydown", (e) => {
+  const grab = e.target.closest("[data-action='rt-grab']");
+  if (!grab || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+  const li = grab.closest(".rt-item.editing[data-id]");
+  if (!li) return;
+  e.preventDefault();
+  const id = li.dataset.id;
+  if (Routine.moveItem(state.routine, id, e.key === "ArrowUp" ? -1 : 1)) {
+    commitRoutine();
+    renderRoutine();
+    $(`#routine-body .rt-item[data-id="${CSS.escape(id)}"] .rt-grab`)?.focus();
+  }
+});
+
 $("#routine-body").addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
@@ -2512,13 +2789,28 @@ $("#routine-body").addEventListener("click", (e) => {
   switch (btn.dataset.action) {
     case "rt-toggle": // un toque marca o desmarca
       if (!item) break;
-      Routine.toggle(state.routine, item, now, Date.now());
+      if (Routine.toggle(state.routine, item, now, Date.now())) {
+        markRoutineJustChecked(item.id);
+        if (state.settings.estilo === "vivo" && navigator.vibrate) navigator.vibrate(8);
+      }
       commitRoutine();
       renderRoutine();
       break;
     case "rt-cell": // corregir un día de la semana que se olvidó marcar
       if (!item || !btn.dataset.date || btn.dataset.date > now) break;
-      Routine.toggle(state.routine, item, btn.dataset.date, Date.now());
+      if (Routine.toggle(state.routine, item, btn.dataset.date, Date.now())) {
+        markRoutineJustChecked(`${item.id}|${btn.dataset.date}`);
+        if (state.settings.estilo === "vivo" && navigator.vibrate) navigator.vibrate(8);
+      }
+      commitRoutine();
+      renderRoutine();
+      break;
+    case "rt-per-toggle":
+      if (!item || !btn.dataset.date) break;
+      if (Routine.toggle(state.routine, item, btn.dataset.date, Date.now())) {
+        markRoutineJustChecked(`${item.id}|${btn.dataset.date}`);
+        if (state.settings.estilo === "vivo" && navigator.vibrate) navigator.vibrate(8);
+      }
       commitRoutine();
       renderRoutine();
       break;
@@ -2526,6 +2818,19 @@ $("#routine-body").addEventListener("click", (e) => {
     case "rt-open-week": state.routineView = "week"; state.routineWeek = null; renderRoutine(); window.scrollTo(0, 0); break;
     case "rt-add": openRoutineSheet(null); break;
     case "rt-item-edit": if (item) openRoutineSheet(item); break;
+    case "rt-item-del": {
+      if (!item) break;
+      const before = clone(state.routine);
+      Routine.removeItem(state.routine, item.id);
+      commitRoutine();
+      renderRoutine();
+      showUndo("Hábito borrado", () => {
+        state.routine = before;
+        commitRoutine();
+        renderRoutine();
+      });
+      break;
+    }
     case "rt-up": case "rt-down":
       if (item && Routine.moveItem(state.routine, item.id, btn.dataset.action === "rt-up" ? -1 : 1)) { commitRoutine(); renderRoutine(); }
       break;
@@ -2537,77 +2842,139 @@ $("#routine-body").addEventListener("click", (e) => {
   }
 });
 
-/* ---------- Trabajo: oportunidades (ofertas y trabajos que quieres seguir) ----------
+/* ---------- Trabajo: oportunidades e ingresos ----------
    La lógica está en work.js. Se guardan y sincronizan por el mismo canal que la rutina (commitRoutine). */
 let workDraft = null;      // oportunidad o ingreso que se está añadiendo o editando
 let workStatusId = null;   // oportunidad cuyo estado se está cambiando
 
-function renderWork() {
-  const views = `
-    <div class="seg" id="work-view" role="tablist" aria-label="Qué ver en Trabajo">
-      <button data-view="opps" class="${state.workView === "opps" ? "active" : ""}" role="tab">Oportunidades</button>
-      <button data-view="income" class="${state.workView === "income" ? "active" : ""}" role="tab">Ingresos</button>
-    </div>`;
-  if (state.workView === "income") return renderIncome(views);
-  const now = today(), c = Work.counts(state.work);
-  const rows = Work.opps(state.work, { all: state.workAll });
-  const cards = rows.map((o) => {
-    const info = Work.closeInfo(o, now);
-    return `
-      <article class="wk-card s-${o.status}" data-id="${esc(o.id)}">
-        <div class="wk-head">
-          <h3 class="wk-title">${esc(o.title)}</h3>
-          <button class="wk-status s-${o.status}" data-action="wk-status" aria-label="Estado: ${Work.STATUS_LABEL[o.status]}. Cambiar">${Work.STATUS_LABEL[o.status]} ▾</button>
-        </div>
-        ${info ? `<p class="wk-close ${o.status === "discarded" || o.status === "replied" ? "" : info.level}">${esc(info.text)}</p>` : ""}
-        ${o.source ? `<p class="muted text-xs">Origen: ${esc(o.source)}</p>` : ""}
-        ${o.note ? `<p class="wk-note">${esc(o.note)}</p>` : ""}
-        <div class="wk-actions">
-          ${o.url ? `<a class="btn-secondary wk-link" href="${esc(o.url)}" target="_blank" rel="noopener noreferrer">Abrir oferta ↗</a>` : `<span class="muted text-xs">Sin enlace</span>`}
-          <button class="icon-btn" data-action="wk-edit" aria-label="Editar">✎</button>
-        </div>
-      </article>`;
-  }).join("");
-  $("#work-body").innerHTML = `${views}
-    <button class="btn-primary w-full py-3" data-action="wk-add">+ Añadir oportunidad</button>
-    ${c.total ? `
-      <p class="muted mt-3 text-sm" id="work-count">${c.review} por revisar · ${c.applied} aplicada${c.applied === 1 ? "" : "s"} · ${c.replied} con respuesta</p>
-      <div class="wk-funnel" aria-hidden="true">
-        <div class="f-review"><span class="wk-funnel-n">${c.review}</span><small>Por revisar</small></div>
-        <div class="f-applied"><span class="wk-funnel-n">${c.applied}</span><small>Apliqué</small></div>
-        <div class="f-replied"><span class="wk-funnel-n">${c.replied}</span><small>Me respondieron</small></div>
-      </div>
-      <div class="seg mt-2" id="work-filter" role="tablist" aria-label="Qué oportunidades mostrar">
-        <button data-all="0" class="${state.workAll ? "" : "active"}" role="tab">Activas (${c.total - c.discarded})</button>
-        <button data-all="1" class="${state.workAll ? "active" : ""}" role="tab">Todas (${c.total})</button>
-      </div>` : ""}
-    <div class="wk-list">${cards}</div>
-    ${rows.length ? "" : `<p class="muted py-10 text-center">${c.total ? "No hay oportunidades activas." : "Aún no hay oportunidades. Aquí aparecerán las ofertas que quieras seguir, con su enlace y su fecha de cierre."}</p>`}`;
+const WORK_MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const WORK_EXT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>`;
+function shortDate(iso) {
+  const [, m, d] = String(iso).split("-").map(Number);
+  return `${d} ${WORK_MONTHS[m - 1]}`;
+}
+function mondayKey(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  return dateStr(dt);
+}
+function shiftDateKey(iso, n) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return dateStr(dt);
 }
 
-/* Ingresos: total del mes con su desglose por tipo, y la lista de trabajos pagados */
+function oppRowHTML(o, now) {
+  const info = Work.closeInfo(o, now);
+  let closeTxt = "", closeLvl = "";
+  if (info) {
+    closeTxt = info.days < 0 ? `Cerrada · ${shortDate(o.closes)}`
+      : info.days > 7 ? `Cierra ${shortDate(o.closes)}`
+      : info.text;
+    closeLvl = (o.status === "discarded" || o.status === "replied") ? "" : info.level;
+  }
+  const noteLine = o.note ? o.note.replace(/\s*\n+\s*/g, " · ") : "";
+  const sub = [o.source, noteLine].filter(Boolean).join(" · ");
+  const metaAria = [o.title, closeTxt, sub].filter(Boolean).join(". ") + ". Editar";
+  return `
+    <li class="wk-card s-${o.status}" data-id="${esc(o.id)}">
+      <div class="wk-row-inner">
+        <button type="button" class="wk-row-btn" data-action="wk-edit" aria-label="${esc(metaAria)}">
+          <span class="wk-title">${esc(o.title)}</span>
+          ${closeTxt ? `<span class="wk-close ${closeLvl}">${esc(closeTxt)}</span>` : ""}
+          ${sub ? `<span class="wk-src">${esc(sub)}</span>` : ""}
+        </button>
+        ${o.url ? `<a class="icon-btn wk-link" href="${esc(o.url)}" target="_blank" rel="noopener noreferrer" aria-label="Abrir oferta: ${esc(o.title)}">${WORK_EXT_ICON}</a>` : ""}
+      </div>
+    </li>`;
+}
+
+function renderWork() {
+  const views = `
+    <div class="tab-rail" id="work-view" role="tablist" aria-label="Qué ver en Trabajo">
+      <button type="button" data-view="opps" class="${state.workView === "opps" ? "active" : ""}" role="tab" aria-selected="${state.workView === "opps"}"><span>Oportunidades</span></button>
+      <button type="button" data-view="income" class="${state.workView === "income" ? "active" : ""}" role="tab" aria-selected="${state.workView === "income"}"><span>Ingresos</span></button>
+    </div>`;
+  if (state.workView === "income") { renderIncome(views); renderHeaderActions(); return; }
+  const now = today(), c = Work.counts(state.work);
+  const allRows = Work.opps(state.work, { all: true });
+  const groupKeys = state.workAll ? Work.STATUSES : ["review", "applied", "replied"];
+  const groupsHtml = groupKeys.map((st) => {
+    const items = allRows.filter((o) => o.status === st);
+    if (!items.length) return "";
+    const lbl = st === "discarded" ? "Descartadas" : Work.STATUS_LABEL[st];
+    return `
+      <section class="wk-group" data-status="${st}" aria-label="${lbl}, ${items.length}">
+        <h2 class="wk-group-head"><span>${lbl}</span><span class="count">${items.length}</span></h2>
+        <ul class="wk-list">${items.map((o) => oppRowHTML(o, now)).join("")}</ul>
+      </section>`;
+  }).join("");
+  const activeCount = c.review + c.applied + c.replied;
+  const discBar = c.discarded ? `
+    <div class="wk-disc-bar">
+      <button type="button" class="wk-disc-btn" data-action="wk-toggle-disc" aria-expanded="${state.workAll}">${state.workAll ? `Ocultar descartadas (${c.discarded})` : `Ver descartadas (${c.discarded})`}</button>
+    </div>` : "";
+  const emptyHtml = !c.total
+    ? `<p class="wk-empty"><span>Aún no hay oportunidades.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="wk-add-link">Añadir oportunidad</button></p>`
+    : (!activeCount && !state.workAll ? `<p class="wk-empty"><span>No hay oportunidades activas.</span></p>` : "");
+  $("#work-body").innerHTML = `${views}
+    ${c.total ? `<p id="work-count" aria-hidden="true">${c.review} por revisar · ${c.applied} aplicada${c.applied === 1 ? "" : "s"} · ${c.replied} con respuesta</p>` : ""}
+    ${groupsHtml ? `<div class="wk-groups">${groupsHtml}${discBar}</div>` : `${emptyHtml}${discBar}`}`;
+  renderHeaderActions();
+}
+
+/* Ingresos: total del mes con su desglose por tipo, y la lista de trabajos pagados agrupada por semana */
 function renderIncome(views) {
-  const month = state.incMonth || today().slice(0, 7), t = Work.monthTotal(state.work, month);
-  const rows = Work.incomes(state.work, month).map((r) => `
-    <button class="inc-row" data-action="inc-edit" data-id="${esc(r.id)}">
-      <span class="min-w-0"><span class="inc-client">${esc(r.client)}</span>
-        <span class="muted text-xs">${new Date(r.date + "T00:00:00").toLocaleDateString("es", { day: "numeric", month: "short" })} · ${Work.TYPE_LABEL[r.type]}</span></span>
-      <span class="inc-amount">${Work.money(r.amount)}</span>
-    </button>`).join("");
+  const curMonth = today().slice(0, 7);
+  const month = state.incMonth || curMonth, t = Work.monthTotal(state.work, month);
+  const now = today(), thisMon = mondayKey(now), lastMon = shiftDateKey(thisMon, -7);
+  const pays = Work.incomes(state.work, month);
+  const byWeek = new Map();
+  pays.forEach((r) => {
+    const wk = mondayKey(r.date);
+    if (!byWeek.has(wk)) byWeek.set(wk, []);
+    byWeek.get(wk).push(r);
+  });
+  const weeksHtml = [...byWeek.entries()].map(([wk, rows]) => {
+    const wkLabel = wk === thisMon ? "Esta semana" : wk === lastMon ? "Semana pasada" : `Semana del ${shortDate(wk)}`;
+    return `
+      <section class="inc-week" aria-label="${wkLabel}">
+        <h3 class="inc-week-head">${wkLabel}</h3>
+        <ul class="inc-week-list">
+          ${rows.map((r) => `
+            <li>
+              <button type="button" class="inc-row" data-action="inc-edit" data-id="${esc(r.id)}" aria-label="${esc(`${r.client}, ${shortDate(r.date)}, ${Work.TYPE_LABEL[r.type]}, ${Work.money(r.amount)}. Editar`)}">
+                <span class="inc-row-inner">
+                  <span class="inc-row-body">
+                    <span class="inc-client">${esc(r.client)}</span>
+                    <span class="inc-meta">${shortDate(r.date)} · ${Work.TYPE_LABEL[r.type]}</span>
+                  </span>
+                  <span class="inc-amount">${Work.money(r.amount)}</span>
+                </span>
+              </button>
+            </li>`).join("")}
+        </ul>
+      </section>`;
+  }).join("");
+  const split = Work.TYPES.filter((k) => t.byType[k] > 0).map((k) => `${Work.TYPE_LABEL[k]} ${Work.money(t.byType[k])}`).join(" · ");
+  const [yr] = month.split("-").map(Number);
+  const curYear = Number(curMonth.slice(0, 4));
+  const mesSolo = Work.monthLabel(month).split(" ")[0].toLowerCase() + (yr !== curYear ? ` de ${yr}` : "");
   $("#work-body").innerHTML = `${views}
     <div class="inc-month">
-      <button class="icon-btn" data-action="inc-prev" aria-label="Mes anterior">‹</button>
-      <strong id="inc-month">${Work.monthLabel(month)}</strong>
-      <button class="icon-btn" data-action="inc-next" aria-label="Mes siguiente" ${month >= today().slice(0, 7) ? "disabled" : ""}>›</button>
+      <button type="button" class="icon-btn" data-action="inc-prev" aria-label="Mes anterior">${RT_ICONS.prev}</button>
+      <h2 class="inc-month-title" id="inc-month" aria-live="polite">${Work.monthLabel(month)}</h2>
+      <button type="button" class="icon-btn" data-action="inc-next" aria-label="Mes siguiente" ${month >= curMonth ? "disabled" : ""}>${RT_ICONS.next}</button>
     </div>
-    <div class="inc-total">
-      <p class="muted text-sm">Total del mes</p>
-      <p class="inc-sum" id="inc-total">${Work.money(t.total)}</p>
-      <p class="muted text-sm" id="inc-split">${Work.TYPES.map((k) => `${Work.TYPE_LABEL[k]} ${Work.money(t.byType[k])}`).join(" · ")}</p>
-    </div>
-    <button class="btn-primary mt-3 w-full py-3" data-action="inc-add">+ Añadir ingreso</button>
-    <div class="inc-list">${rows}</div>
-    ${t.count ? "" : `<p class="muted py-10 text-center">No hay ingresos en ${Work.monthLabel(month).toLowerCase()}.</p>`}`;
+    ${t.count ? `
+      <div class="inc-total">
+        <p class="inc-sum" id="inc-total" aria-label="Total de ${mesSolo}: ${Work.money(t.total)}">${Work.money(t.total)}</p>
+        ${split ? `<p class="inc-split" id="inc-split">${split}</p>` : ""}
+      </div>
+      <div class="inc-list">${weeksHtml}</div>
+    ` : `<p class="inc-empty"><span>No hay ingresos en ${mesSolo}.</span><span aria-hidden="true">·</span><button type="button" class="link-accent" data-action="inc-add-link">Añadir ingreso</button></p>`}`;
 }
 
 function renderIncomeSheet() {
@@ -2649,6 +3016,8 @@ function renderWorkSheet() {
       <div class="flex-1 min-w-0"><label class="setting-label" for="wk-state">Estado</label>
         <select id="wk-state" class="field">${Work.STATUSES.map((s) => `<option value="${s}" ${d.status === s ? "selected" : ""}>${Work.STATUS_LABEL[s]}</option>`).join("")}</select></div>
     </div>
+    <label class="setting-label mt-3" for="wk-source">Origen</label>
+    <input id="wk-source" class="field" maxlength="${Work.MAX_SOURCE || 60}" autocomplete="off" placeholder="Por ejemplo: LinkedIn" value="${esc(d.source || "")}">
     <label class="setting-label mt-3" for="wk-note">Nota</label>
     <textarea id="wk-note" class="field" rows="3" maxlength="${Work.MAX_NOTE}" placeholder="Pago, requisitos, a quién escribir…">${esc(d.note)}</textarea>
     <p id="wk-error" class="rem-error mt-2 text-xs" role="alert"></p>
@@ -2670,7 +3039,7 @@ $("#work-sheet").addEventListener("click", (e) => {
   if (!act || !d) return;
   if (act.dataset.action === "wk-save") {
     const url = $("#wk-url").value.trim();
-    const data = { title: $("#wk-title").value, url, closes: $("#wk-closes").value, status: $("#wk-state").value, note: $("#wk-note").value, source: d.source };
+    const data = { title: $("#wk-title").value, url, closes: $("#wk-closes").value, status: $("#wk-state").value, note: $("#wk-note").value, source: $("#wk-source") ? $("#wk-source").value : d.source };
     const err = (t) => { $("#wk-error").textContent = t; };
     if (!data.title.trim()) return err("Escribe el nombre del trabajo u oferta.");
     if (url && !Work.cleanUrl(url)) return err("El enlace debe empezar con https:// o http:// y no llevar espacios.");
@@ -2725,8 +3094,9 @@ $("#work-body").addEventListener("click", (e) => {
   const card = btn.closest("[data-id]");
   const opp = card && state.work.find((r) => r.id === card.dataset.id);
   switch (btn.dataset.action) {
-    case "wk-add": openWorkSheet(null); break;
-    case "inc-add": openIncomeSheet(null); break;
+    case "wk-add": case "wk-add-link": openWorkSheet(null); break;
+    case "inc-add": case "inc-add-link": openIncomeSheet(null); break;
+    case "wk-toggle-disc": state.workAll = !state.workAll; renderWork(); break;
     case "inc-edit": { const rec = state.work.find((r) => r.id === btn.dataset.id); if (rec) openIncomeSheet(rec); break; }
     case "inc-prev": case "inc-next": {
       const next = Work.shiftMonth(state.incMonth || today().slice(0, 7), btn.dataset.action === "inc-prev" ? -1 : 1);
